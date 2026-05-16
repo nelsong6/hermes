@@ -37,15 +37,13 @@ resources:
     cpu: 1000m
     memory: 1Gi
 
-# Public ingress is DISABLED. The `hermes gateway` process (our main
-# container) does not bind an HTTP port — it only polls platform APIs
-# outbound. The `hermes dashboard` sidecar (see below) IS an HTTP server,
-# but it ships with no authentication and gives read-write access to
-# config + .env (LLM API key). Exposing it at hermes.romaine.life requires
-# an auth proxy in front (e.g. mcp-auth or oauth2-proxy) — separate work.
-# Reach the dashboard via `kubectl port-forward svc/hermes 9119:9119`.
+# Public ingress at hermes.romaine.life. Traffic terminates at the
+# auth-proxy sidecar (port 8080), which gates every request via
+# auth.romaine.life cookie delegation before forwarding to the dashboard
+# at 127.0.0.1:9119. Pattern: XListenerSet + cert-manager + HTTPRoute,
+# mirrors glimmung.
 ingress:
-  enabled: false
+  enabled: true
   hostname: hermes.romaine.life
   gatewayName: main
   gatewayNamespace: envoy-gateway-system
@@ -56,9 +54,8 @@ ingress:
 # (included in `[all]`, already in the image). Runs alongside the gateway
 # against the same /data volume, so it sees the same sessions / skills /
 # config / .env. Binds to 127.0.0.1:9119 inside the pod (upstream refuses
-# 0.0.0.0 without --insecure because no auth). Reach via:
-#
-#     kubectl port-forward -n hermes pod/hermes-0 9119:9119
+# 0.0.0.0 without --insecure because no auth). Reached only via the
+# auth-proxy sidecar below.
 dashboard:
   enabled: true
   resources:
@@ -69,11 +66,38 @@ dashboard:
       cpu: 500m
       memory: 512Mi
 
-# Service is intentionally off — the dashboard binds to 127.0.0.1 inside
-# the pod, so a Service has nothing to route to. Flip this on once an
-# auth proxy sits in front of the dashboard.
+# Auth-proxy sidecar — Go reverse proxy that fronts the dashboard with
+# auth.romaine.life cookie delegation. Per-request: forward inbound
+# cookie to /api/auth/get-session, cache 60s, allow iff role=admin OR
+# apps.hermes.access=true. Unauthed browser GETs 302 to Entra via
+# auth.romaine.life. Lifted from glimmung's internal/auth/cookie_delegate.go.
+authProxy:
+  enabled: true
+  image:
+    repository: romainecr.azurecr.io/auth-proxy
+    # Rewritten by build.yaml on first push to main. Until then this
+    # placeholder makes the chart syntactically valid; the pod will
+    # ImagePullBackOff until the real tag is committed — visible signal,
+    # no infinite reconcile churn.
+    tag: "app-pending"
+    pullPolicy: IfNotPresent
+  port: 8080
+  # Key in the auth.romaine.life user's `apps` JSON column to check for
+  # `.access: true`. Admins bypass this (role=admin → allow regardless).
+  requiredAppKey: hermes
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Service is enabled — front door is the auth-proxy on port 8080. The
+# dashboard's 127.0.0.1:9119 is reached only by the auth-proxy in the same
+# pod's net namespace; never directly.
 service:
-  enabled: false
+  enabled: true
 
 # ExternalSecret — Hermes' upstream config keys (LLM API key, optional
 # platform bot tokens). Each entry maps a Key Vault secret to an env var

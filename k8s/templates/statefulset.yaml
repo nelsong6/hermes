@@ -81,6 +81,47 @@ spec:
             - name: data
               mountPath: {{ .Values.persistence.mountPath }}
         {{- end }}
+        # ─── auth-proxy sidecar ──────────────────────────────────────
+        # Go reverse proxy that fronts the dashboard with
+        # auth.romaine.life cookie delegation. Binds 0.0.0.0:8080 (the
+        # public entrypoint via Service / HTTPRoute) and reverse-proxies
+        # to 127.0.0.1:9119 (the dashboard, same pod's loopback). Per
+        # request: forward inbound `.romaine.life` cookie to
+        # /api/auth/get-session, cache 60s, allow iff role=admin OR
+        # apps[<requiredAppKey>].access == true. Unauthed browser GETs
+        # 302 to Entra via auth.romaine.life. See auth-proxy/ in this
+        # repo.
+        {{- if .Values.authProxy.enabled }}
+        - name: auth-proxy
+          image: {{ .Values.authProxy.image.repository }}:{{ .Values.authProxy.image.tag }}
+          imagePullPolicy: {{ .Values.authProxy.image.pullPolicy }}
+          ports:
+            - name: auth-proxy
+              containerPort: {{ .Values.authProxy.port }}
+          env:
+            - name: UPSTREAM_URL
+              value: http://127.0.0.1:9119
+            - name: PUBLIC_HOSTNAME
+              value: {{ .Values.ingress.hostname | quote }}
+            - name: REQUIRED_APP_KEY
+              value: {{ .Values.authProxy.requiredAppKey | quote }}
+            - name: LISTEN_ADDR
+              value: ":{{ .Values.authProxy.port }}"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: auth-proxy
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: auth-proxy
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.authProxy.resources | nindent 12 }}
+        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data
