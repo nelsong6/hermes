@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.config.name }}
+  namespace: {{ .Values.namespace }}
+data:
+  # Non-secret Hermes config. Real keys go here once we know the upstream
+  # config interface. Keeping the ConfigMap present (rather than gating it on
+  # .Values) so envFrom in the StatefulSet doesn't break when keys are added.
+  HERMES_DATA_DIR: {{ .Values.config.dataDir | quote }}

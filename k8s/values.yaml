@@ -1,0 +1,79 @@
+image:
+  repository: romainecr.azurecr.io/hermes
+  # TODO: real tag once the Dockerfile is fleshed out and CI is publishing
+  # images. SHA-pinned tags rewritten by build CI on push to main — pattern
+  # mirrors glimmung's `app-<sha256>` scheme. For now this is a placeholder;
+  # the StatefulSet will fail ImagePull until a real image is published.
+  tag: "TODO-pin-once-image-pipeline-exists"
+  pullPolicy: IfNotPresent
+
+namespace: hermes
+serviceAccount: hermes
+# Dedicated Hermes app identity from tofu/identity.tf's
+# `hermes_dedicated_identity_client_id` output. Populate after first
+# `tofu apply` in this repo.
+serviceAccountClientId: "TODO-populate-from-tofu-output"
+
+# Single replica is intentional — Hermes' value lives in the SQLite WAL +
+# skills directory on the PVC. Multi-replica needs an external memory backend
+# upstream doesn't provide today.
+replicas: 1
+
+# Persistence for SQLite (FTS5 cross-session recall + LLM summarization),
+# skills directory, and Honcho user-modeling state. 5Gi is comfortable for
+# ~10 active users; raise if usage grows.
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClassName: ""        # falls back to cluster default
+  accessMode: ReadWriteOnce
+  mountPath: /data
+
+# Container resource requests / limits. Tune after observing real usage.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Public ingress at hermes.romaine.life — XListenerSet on the shared
+# envoy-gateway with TLS termination from cert-manager. ExternalDNS picks
+# the A record off the HTTPRoute's parentRef on the main Gateway.
+# Pattern lifted from glimmung's chart.
+ingress:
+  enabled: true
+  hostname: hermes.romaine.life
+  gatewayName: main
+  gatewayNamespace: envoy-gateway-system
+  certIssuer: letsencrypt-prod
+  tlsSecret: hermes-tls
+
+# ExternalSecret — Hermes' upstream config keys (LLM API key, optional
+# platform bot tokens). Each entry maps a Key Vault secret to an env var
+# the StatefulSet envFroms.
+#
+# TODO: confirm the exact env var names Hermes reads. Placeholders below
+# follow common patterns; real upstream names go here once verified.
+# All KV secrets must be created manually before turning on the relevant
+# platform — they are not provisioned by tofu.
+externalSecret:
+  storeName: romaine-kv
+  storeKind: ClusterSecretStore
+  refreshInterval: 1h
+  secretName: hermes-secrets
+  keys:
+    - envVar: OPENROUTER_API_KEY      # or OPENAI_API_KEY / NOUS_PORTAL_API_KEY
+      kvKey: hermes-llm-api-key
+    # Per-platform bot tokens — enable as platforms are turned on.
+    # - envVar: TELEGRAM_BOT_TOKEN
+    #   kvKey: hermes-telegram-bot-token
+    # - envVar: SLACK_BOT_TOKEN
+    #   kvKey: hermes-slack-bot-token
+
+# Non-secret config. Confirm against Hermes' actual config interface.
+config:
+  name: hermes-config
+  # Where Hermes writes its SQLite + skills. Must match persistence.mountPath.
+  dataDir: /data
