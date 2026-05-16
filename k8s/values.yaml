@@ -4,7 +4,7 @@ image:
   # images. SHA-pinned tags rewritten by build CI on push to main — pattern
   # mirrors glimmung's `app-<sha256>` scheme. For now this is a placeholder;
   # the StatefulSet will fail ImagePull until a real image is published.
-  tag: "TODO-pin-once-image-pipeline-exists"
+  tag: "app-37005d8c22ab7ff653268f1771ed4789e1690b1f"
   pullPolicy: IfNotPresent
 
 namespace: hermes
