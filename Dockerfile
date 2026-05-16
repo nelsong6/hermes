@@ -6,9 +6,12 @@
 # is opinionated about user-machine layout (~/.local/bin, venvs in $HOME)
 # and unsuitable for a service container.
 #
-# Pinned to v0.14.0 (released 2026-05-16). Bump deliberately; bumps may
-# touch Hermes' persistent SQLite schema only at boundaries upstream documents.
-ARG HERMES_VERSION=v0.14.0
+# Pinned to v2026.5.16 (upstream's latest date-tagged release as of
+# 2026-05-16). Upstream ships date-tagged releases (`v<YYYY>.<M>.<D>`),
+# not semver — see https://github.com/NousResearch/hermes-agent/tags.
+# Bump deliberately; releases may touch Hermes' persistent SQLite schema
+# only at boundaries upstream documents.
+ARG HERMES_VERSION=v2026.5.16
 
 FROM python:3.11-slim AS build
 
