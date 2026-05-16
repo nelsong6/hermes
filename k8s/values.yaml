@@ -55,7 +55,10 @@ ingress:
 # Dashboard sidecar — `hermes dashboard` from upstream's `[web]` extra
 # (included in `[all]`, already in the image). Runs alongside the gateway
 # against the same /data volume, so it sees the same sessions / skills /
-# config / .env.
+# config / .env. Binds to 127.0.0.1:9119 inside the pod (upstream refuses
+# 0.0.0.0 without --insecure because no auth). Reach via:
+#
+#     kubectl port-forward -n hermes pod/hermes-0 9119:9119
 dashboard:
   enabled: true
   resources:
@@ -65,6 +68,12 @@ dashboard:
     limits:
       cpu: 500m
       memory: 512Mi
+
+# Service is intentionally off — the dashboard binds to 127.0.0.1 inside
+# the pod, so a Service has nothing to route to. Flip this on once an
+# auth proxy sits in front of the dashboard.
+service:
+  enabled: false
 
 # ExternalSecret — Hermes' upstream config keys (LLM API key, optional
 # platform bot tokens). Each entry maps a Key Vault secret to an env var

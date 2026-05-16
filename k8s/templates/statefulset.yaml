@@ -49,20 +49,24 @@ spec:
               mountPath: {{ .Values.persistence.mountPath }}
         # ─── dashboard sidecar ───────────────────────────────────────
         # `hermes dashboard` — built-in web UI from the upstream `[web]`
-        # extra (FastAPI + uvicorn, already included in `[all]`). Binds
-        # 0.0.0.0:9119 so port-forward and the Service can reach it.
-        # NO AUTH at the app level — the gate is k8s RBAC for
-        # `kubectl port-forward`. Do NOT add a public ingress without
-        # putting an auth proxy in front; the dashboard gives read-write
-        # access to config and .env (LLM key).
+        # extra (already in our `[all]` install). The dashboard has NO
+        # auth and gives read-write access to config + .env (LLM key);
+        # upstream refuses to bind to 0.0.0.0 without `--insecure` for
+        # exactly that reason. We honor that and bind to 127.0.0.1
+        # within the pod's network namespace. Reach it from a laptop with:
+        #
+        #     kubectl port-forward -n hermes pod/hermes-0 9119:9119
+        #     open http://localhost:9119
+        #
+        # kubectl port-forward connects through the kubelet to the pod's
+        # 127.0.0.1, so loopback-bound services are reachable that way.
+        # A Service does NOT see this bind — exposing the dashboard to
+        # the cluster needs an auth proxy in front (separate work).
         {{- if .Values.dashboard.enabled }}
         - name: dashboard
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["tini", "--", "hermes", "dashboard", "--host", "0.0.0.0", "--port", "9119"]
-          ports:
-            - name: dashboard
-              containerPort: 9119
+          command: ["tini", "--", "hermes", "dashboard", "--port", "9119"]
           env:
             - name: HERMES_DATA_DIR
               value: {{ .Values.config.dataDir | quote }}
