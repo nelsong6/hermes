@@ -1,18 +1,17 @@
 image:
   repository: romainecr.azurecr.io/hermes
-  # TODO: real tag once the Dockerfile is fleshed out and CI is publishing
-  # images. SHA-pinned tags rewritten by build CI on push to main — pattern
-  # mirrors glimmung's `app-<sha256>` scheme. For now this is a placeholder;
-  # the StatefulSet will fail ImagePull until a real image is published.
+  # SHA-pinned. `build.yaml` rewrites this line on every push to main via a
+  # `[skip ci]` follow-up commit. Quote the value so all-digit short SHAs
+  # aren't reformatted as scientific notation by YAML.
   tag: "app-37005d8c22ab7ff653268f1771ed4789e1690b1f"
   pullPolicy: IfNotPresent
 
 namespace: hermes
 serviceAccount: hermes
 # Dedicated Hermes app identity from tofu/identity.tf's
-# `hermes_dedicated_identity_client_id` output. Populate after first
-# `tofu apply` in this repo.
-serviceAccountClientId: "TODO-populate-from-tofu-output"
+# `hermes_dedicated_identity_client_id` output (UAMI `hermes-identity`
+# in resource group `hermes`).
+serviceAccountClientId: "137a3b5e-4da9-4fea-8396-42a2744f9965"
 
 # Single replica is intentional — Hermes' value lives in the SQLite WAL +
 # skills directory on the PVC. Multi-replica needs an external memory backend
