@@ -1,39 +1,79 @@
-# TODO: real Hermes container build.
+# Hermes Agent container image.
 #
-# Upstream installs via curl-to-Python script (https://hermes-agent.nousresearch.com/docs/).
-# Real image needs to:
-#   1. Pin a hermes-agent version (or git SHA) from NousResearch/hermes-agent.
-#   2. Install Python 3.11 + dependencies (likely `pip install hermes-agent` once
-#      they publish to PyPI; until then, install from git tag).
-#   3. Create /data as the persistence root (PVC mounts here) and configure
-#      Hermes to use it for SQLite + skills.
-#   4. Run as non-root for the StatefulSet's pod security context.
+# Upstream is github.com/NousResearch/hermes-agent. It ships as a Python
+# package with a `hermes` console_script declared in pyproject.toml. We pin
+# to a release tag rather than the install.sh script — the install script
+# is opinionated about user-machine layout (~/.local/bin, venvs in $HOME)
+# and unsuitable for a service container.
 #
-# This file is a placeholder so the repo layout matches the rest of the AKS apps.
-# Real implementation lands with the build pipeline + values.yaml image-tag wiring.
-#
-# Reference: NousResearch/hermes-agent
+# Pinned to v0.14.0 (released 2026-05-16). Bump deliberately; bumps may
+# touch Hermes' persistent SQLite schema only at boundaries upstream documents.
+ARG HERMES_VERSION=v0.14.0
 
-FROM python:3.11-slim
+FROM python:3.11-slim AS build
 
-RUN useradd --create-home --uid 1000 hermes \
+ARG HERMES_VERSION
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# git is needed for `pip install git+...`. Build tools support packages
+# in the Hermes dep tree that may need to compile C extensions.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      git \
+      build-essential \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install Hermes into /opt/venv so the runtime stage can copy it whole.
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+
+# `[all]` pulls in the optional platform connectors (Telegram, Slack,
+# Discord, etc.) defined in pyproject.toml's optional-dependencies. We
+# install with `[all]` rather than per-platform extras so turning on a
+# new platform later is a config change, not an image rebuild.
+RUN pip install "hermes-agent[all] @ git+https://github.com/NousResearch/hermes-agent.git@${HERMES_VERSION}"
+
+# ─── runtime stage ──────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:${PATH}"
+
+# tini for proper signal handling — Hermes' gateway is a long-running
+# process and PID 1 needs to forward SIGTERM cleanly for graceful
+# StatefulSet rollouts. Headless browser runtime deps live behind Hermes'
+# `[browser]` extra; install chromium here if/when that path is exercised
+# in-pod.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      tini \
+      ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --create-home --uid 1000 hermes \
  && mkdir -p /data \
  && chown -R hermes:hermes /data
 
+COPY --from=build --chown=hermes:hermes /opt/venv /opt/venv
+
 USER hermes
 WORKDIR /home/hermes
-
-# TODO: pin hermes-agent version and install. The curl one-liner the upstream
-# install script uses is opinionated about the host environment; for the
-# container path we want a direct pip install.
-#
-# RUN pip install --no-cache-dir hermes-agent==<pinned-version>
-# OR
-# RUN pip install --no-cache-dir 'hermes-agent @ git+https://github.com/NousResearch/hermes-agent@<sha>'
-
 VOLUME ["/data"]
 
-# Hermes' actual entrypoint command — confirm against upstream once the install
-# is wired up. Likely `hermes serve` or similar.
-# CMD ["hermes", "serve", "--data-dir", "/data"]
-CMD ["sh", "-c", "echo 'hermes image is a stub — see Dockerfile TODOs' && sleep infinity"]
+# Hermes reads state from $HERMES_HOME / ~/.hermes by default. Point it at
+# /data (the PVC mount) so SQLite + skills survive pod restarts. The
+# StatefulSet's ConfigMap also exports HERMES_DATA_DIR pointing here; the
+# image defaults are belt-and-suspenders for kubectl-exec / one-shot debug.
+ENV HERMES_HOME=/data \
+    HERMES_DATA_DIR=/data
+
+EXPOSE 8000
+
+# Long-running messaging gateway is the AKS-facing entrypoint. The
+# interactive `hermes` CLI still works via `kubectl exec`. If upstream
+# renames the gateway subcommand in a future release, this is the only
+# line to update.
+ENTRYPOINT ["tini", "--", "hermes"]
+CMD ["gateway"]
