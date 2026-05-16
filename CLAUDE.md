@@ -16,7 +16,7 @@ This repo owns the deployment, not the agent. Upstream is [`NousResearch/hermes-
 ## Deployment shape
 
 - **Single-replica StatefulSet** with a PVC at `/data`. Hermes' SQLite (WAL mode) + skills directory live there; that file is the moat — without persistence, the self-improvement loop is amnesiac and Hermes is worthless. Do not change to a Deployment with emptyDir.
-- **Public at `hermes.romaine.life`** via XListenerSet + cert-manager + HTTPRoute. Pattern mirrors `glimmung`.
+- **No public ingress.** `hermes gateway` doesn't bind HTTP — it only polls platform APIs outbound. The `hermes dashboard` sidecar is an HTTP server but ships with **no auth** and gives read-write access to config + `.env` (the LLM API key). Reach the dashboard via `kubectl port-forward svc/hermes 9119:9119` then `http://localhost:9119`. The chart's `ingress` block is left in values.yaml gated behind `ingress.enabled: false` — flip it on only after putting an auth proxy (mcp-auth / oauth2-proxy) in front.
 - **Per-app workload identity** (`hermes-identity` in `tofu/identity.tf`) — narrow scope: KV Secrets User on the shared vault for the ExternalSecret fetch path, nothing else broad. Add specific role grants here as integrations are added.
 - **Secrets via ExternalSecrets**: LLM API key, platform bot tokens (Telegram, Slack, …) flow from Key Vault. Keys are set manually in KV, same as glimmung's GitHub App creds. See `k8s/values.yaml::externalSecret.keys`.
 

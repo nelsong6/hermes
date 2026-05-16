@@ -7,6 +7,10 @@ spec:
   selector:
     app: hermes
   ports:
-    - name: http
-      port: 80
-      targetPort: http
+    # Hermes dashboard — cluster-internal only. No auth; reach via
+    # `kubectl port-forward svc/hermes 9119:9119` and browse to
+    # http://localhost:9119. See CLAUDE.md for caveats on exposing
+    # publicly (needs an auth proxy in front).
+    - name: dashboard
+      port: 9119
+      targetPort: dashboard

@@ -26,16 +26,15 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
       containers:
+        # ─── gateway ─────────────────────────────────────────────────
+        # Long-running messaging gateway. Does NOT bind any HTTP port —
+        # it polls platform APIs outbound (Telegram/Slack/etc.) and
+        # writes to the shared SQLite at /data. The dashboard sidecar
+        # below is the web surface.
         - name: hermes
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: 8000
           env:
-            # TODO: confirm Hermes' actual env var names against upstream
-            # config interface. Names below are placeholders that align with
-            # common patterns.
             - name: HERMES_DATA_DIR
               value: {{ .Values.config.dataDir | quote }}
           envFrom:
@@ -43,26 +42,41 @@ spec:
                 name: {{ .Values.config.name }}
             - secretRef:
                 name: {{ .Values.externalSecret.secretName }}
-          # TODO: real readiness / liveness probes once we know Hermes' health
-          # endpoint. Leaving commented so the pod can start without them
-          # tripping during initial bring-up.
-          # readinessProbe:
-          #   httpGet:
-          #     path: /healthz
-          #     port: http
-          #   initialDelaySeconds: 5
-          #   periodSeconds: 10
-          # livenessProbe:
-          #   httpGet:
-          #     path: /healthz
-          #     port: http
-          #   initialDelaySeconds: 30
-          #   periodSeconds: 30
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: {{ .Values.persistence.mountPath }}
+        # ─── dashboard sidecar ───────────────────────────────────────
+        # `hermes dashboard` — built-in web UI from the upstream `[web]`
+        # extra (FastAPI + uvicorn, already included in `[all]`). Binds
+        # 0.0.0.0:9119 so port-forward and the Service can reach it.
+        # NO AUTH at the app level — the gate is k8s RBAC for
+        # `kubectl port-forward`. Do NOT add a public ingress without
+        # putting an auth proxy in front; the dashboard gives read-write
+        # access to config and .env (LLM key).
+        {{- if .Values.dashboard.enabled }}
+        - name: dashboard
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["tini", "--", "hermes", "dashboard", "--host", "0.0.0.0", "--port", "9119"]
+          ports:
+            - name: dashboard
+              containerPort: 9119
+          env:
+            - name: HERMES_DATA_DIR
+              value: {{ .Values.config.dataDir | quote }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Values.config.name }}
+            - secretRef:
+                name: {{ .Values.externalSecret.secretName }}
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data

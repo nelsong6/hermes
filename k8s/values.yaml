@@ -37,17 +37,34 @@ resources:
     cpu: 1000m
     memory: 1Gi
 
-# Public ingress at hermes.romaine.life — XListenerSet on the shared
-# envoy-gateway with TLS termination from cert-manager. ExternalDNS picks
-# the A record off the HTTPRoute's parentRef on the main Gateway.
-# Pattern lifted from glimmung's chart.
+# Public ingress is DISABLED. The `hermes gateway` process (our main
+# container) does not bind an HTTP port — it only polls platform APIs
+# outbound. The `hermes dashboard` sidecar (see below) IS an HTTP server,
+# but it ships with no authentication and gives read-write access to
+# config + .env (LLM API key). Exposing it at hermes.romaine.life requires
+# an auth proxy in front (e.g. mcp-auth or oauth2-proxy) — separate work.
+# Reach the dashboard via `kubectl port-forward svc/hermes 9119:9119`.
 ingress:
-  enabled: true
+  enabled: false
   hostname: hermes.romaine.life
   gatewayName: main
   gatewayNamespace: envoy-gateway-system
   certIssuer: letsencrypt-prod
   tlsSecret: hermes-tls
+
+# Dashboard sidecar — `hermes dashboard` from upstream's `[web]` extra
+# (included in `[all]`, already in the image). Runs alongside the gateway
+# against the same /data volume, so it sees the same sessions / skills /
+# config / .env.
+dashboard:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 # ExternalSecret — Hermes' upstream config keys (LLM API key, optional
 # platform bot tokens). Each entry maps a Key Vault secret to an env var
