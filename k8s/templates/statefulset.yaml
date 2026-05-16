@@ -16,6 +16,15 @@ spec:
         azure.workload.identity/use: "true"
     spec:
       serviceAccountName: {{ .Values.serviceAccount }}
+      # Run as UID 1000 (image's `hermes` user) and set fsGroup so the
+      # PVC at /data is chowned to that group on mount. Without fsGroup
+      # the dynamically-provisioned PVC mounts as root:root and Hermes
+      # crashes trying to mkdir /data/logs.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
         - name: hermes
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
