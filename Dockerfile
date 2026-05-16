@@ -1,10 +1,13 @@
 # Hermes Agent container image.
 #
 # Upstream is github.com/NousResearch/hermes-agent. It ships as a Python
-# package with a `hermes` console_script declared in pyproject.toml. We pin
-# to a release tag rather than the install.sh script — the install script
-# is opinionated about user-machine layout (~/.local/bin, venvs in $HOME)
-# and unsuitable for a service container.
+# package with a `hermes` console_script declared in pyproject.toml, plus
+# a Vite + React SPA under `web/` that the `hermes dashboard` server
+# expects pre-built into `hermes_cli/web_dist/`. A pure `pip install`
+# from the git tag only installs the Python side, leaving the dashboard
+# returning {"error":"Frontend not built. Run: cd web && npm run build"}
+# — so we do the npm build ourselves in a Node stage, then pip-install
+# from the local tree (which now carries the built web_dist/).
 #
 # Pinned to v2026.5.16 (upstream's latest date-tagged release as of
 # 2026-05-16). Upstream ships date-tagged releases (`v<YYYY>.<M>.<D>`),
@@ -13,43 +16,68 @@
 # only at boundaries upstream documents.
 ARG HERMES_VERSION=v2026.5.16
 
-FROM python:3.11-slim AS build
-
+# ─── stage 1: clone source + build frontend ────────────────────────────
+FROM node:20-alpine AS web-build
 ARG HERMES_VERSION
+RUN apk add --no-cache git
+WORKDIR /src
+RUN git clone --depth 1 --branch ${HERMES_VERSION} \
+      https://github.com/NousResearch/hermes-agent.git .
+WORKDIR /src/web
+# Use npm ci for reproducible installs against the lockfile; fall back
+# to npm install when the lockfile is missing (some upstream tags ship
+# without one). The Vite build writes to ../hermes_cli/web_dist/ per
+# upstream's web/README.md.
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi \
+ && npm run build \
+ && test -d /src/hermes_cli/web_dist || (echo "expected /src/hermes_cli/web_dist after npm build" >&2; exit 1)
+
+# ─── stage 2: pip install from the local source tree ──────────────────
+FROM python:3.11-slim AS py-build
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# git is needed for `pip install git+...`. Build tools support packages
-# in the Hermes dep tree that may need to compile C extensions.
+# git for any git+... transitive deps the package may pull in;
+# build-essential for sdists that need to compile C extensions.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      git \
-      build-essential \
+ && apt-get install -y --no-install-recommends git build-essential \
  && rm -rf /var/lib/apt/lists/*
 
-# Install Hermes into /opt/venv so the runtime stage can copy it whole.
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
-# `[all]` pulls in the optional platform connectors (Telegram, Slack,
-# Discord, etc.) defined in pyproject.toml's optional-dependencies. We
-# install with `[all]` rather than per-platform extras so turning on a
-# new platform later is a config change, not an image rebuild.
-RUN pip install "hermes-agent[all] @ git+https://github.com/NousResearch/hermes-agent.git@${HERMES_VERSION}"
+# Bring the source (with built web_dist) over from the web-build stage.
+COPY --from=web-build /src /src
 
-# ─── runtime stage ──────────────────────────────────────────────────────────
+# `[all]` pulls in the optional platform connectors + the `web` extra
+# (FastAPI + uvicorn for the dashboard).
+RUN pip install "/src[all]"
+
+# Belt-and-suspenders: ensure web_dist landed inside the installed
+# package directory regardless of how upstream's pyproject.toml declares
+# its package-data. The FastAPI dashboard resolves the SPA path
+# relative to its own package, so it has to live alongside the .py
+# files. Idempotent — if pip-install already copied it via
+# package-data, this overwrites with identical content.
+RUN python - <<'PY'
+import hermes_cli, os, shutil
+dst = os.path.join(os.path.dirname(hermes_cli.__file__), "web_dist")
+src = "/src/hermes_cli/web_dist"
+shutil.copytree(src, dst, dirs_exist_ok=True)
+print(f"web_dist installed at {dst}, files:", len(os.listdir(dst)))
+PY
+
+# ─── stage 3: runtime ──────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:${PATH}"
 
-# tini for proper signal handling — Hermes' gateway is a long-running
-# process and PID 1 needs to forward SIGTERM cleanly for graceful
-# StatefulSet rollouts. Headless browser runtime deps live behind Hermes'
-# `[browser]` extra; install chromium here if/when that path is exercised
-# in-pod.
+# tini for proper signal handling. Headless browser deps live behind
+# Hermes' `[browser]` extra; install chromium here if/when that path is
+# exercised in-pod.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       tini \
@@ -59,24 +87,16 @@ RUN apt-get update \
  && mkdir -p /data \
  && chown -R hermes:hermes /data
 
-COPY --from=build --chown=hermes:hermes /opt/venv /opt/venv
+COPY --from=py-build --chown=hermes:hermes /opt/venv /opt/venv
 
 USER hermes
 WORKDIR /home/hermes
 VOLUME ["/data"]
 
-# Hermes reads state from $HERMES_HOME / ~/.hermes by default. Point it at
-# /data (the PVC mount) so SQLite + skills survive pod restarts. The
-# StatefulSet's ConfigMap also exports HERMES_DATA_DIR pointing here; the
-# image defaults are belt-and-suspenders for kubectl-exec / one-shot debug.
 ENV HERMES_HOME=/data \
     HERMES_DATA_DIR=/data
 
 EXPOSE 8000
 
-# Long-running messaging gateway is the AKS-facing entrypoint. The
-# interactive `hermes` CLI still works via `kubectl exec`. If upstream
-# renames the gateway subcommand in a future release, this is the only
-# line to update.
 ENTRYPOINT ["tini", "--", "hermes"]
 CMD ["gateway"]
