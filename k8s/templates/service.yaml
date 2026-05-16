@@ -1,8 +1,8 @@
 {{- if .Values.service.enabled -}}
-# Service is OFF by default — the dashboard binds to 127.0.0.1 inside the
-# pod so a Service can't reach it. When we put an auth proxy in front and
-# bind the dashboard to a non-loopback address, flip `service.enabled` on
-# and add the appropriate port mapping here.
+# Front door is the auth-proxy on port 8080. Browser hits this Service via
+# the HTTPRoute and the proxy gates each request before forwarding to the
+# dashboard at 127.0.0.1:9119 (loopback inside the same pod). The dashboard
+# itself is never exposed by a Service.
 apiVersion: v1
 kind: Service
 metadata:
@@ -11,5 +11,8 @@ metadata:
 spec:
   selector:
     app: hermes
-  ports: []
+  ports:
+    - name: http
+      port: 80
+      targetPort: auth-proxy
 {{- end }}

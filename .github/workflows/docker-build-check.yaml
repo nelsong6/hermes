@@ -19,11 +19,18 @@ concurrency:
 
 jobs:
   build:
-    name: Build image
+    name: Build ${{ matrix.image }} image
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: hermes
+            dockerfile: Dockerfile
+          - image: auth-proxy
+            dockerfile: auth-proxy/Dockerfile
     env:
       REGISTRY: romainecr.azurecr.io
-      IMAGE: hermes
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,15 +70,16 @@ jobs:
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: az acr login --name romainecr
 
-      - name: Build image (push for trusted PRs, cache-only for forks)
+      - name: Build ${{ matrix.image }} image (push for trusted PRs, cache-only for forks)
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE }}:check-${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/${{ matrix.image }}:check-${{ github.sha }}
           cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE }}-build-cache:app
-            type=gha,scope=hermes
+            type=registry,ref=${{ env.REGISTRY }}/${{ matrix.image }}-build-cache:app
+            type=gha,scope=${{ matrix.image }}
           cache-to: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE }}-build-cache:app,mode=max
-            type=gha,mode=max,scope=hermes
+            type=registry,ref=${{ env.REGISTRY }}/${{ matrix.image }}-build-cache:app,mode=max
+            type=gha,mode=max,scope=${{ matrix.image }}

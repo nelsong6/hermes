@@ -24,12 +24,15 @@ permissions:
   id-token: write
   contents: write
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
     env:
       REGISTRY: romainecr.azurecr.io
-      IMAGE: hermes
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,41 +73,111 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Check existing image
-        id: image
+      # ── hermes image ───────────────────────────────────────────────
+      - name: Check existing hermes image
+        id: hermes_image
         shell: bash
         run: |
           set -euo pipefail
           if az acr repository show-tags \
-              --name romainecr \
-              --repository "${IMAGE}" \
-              --query "[?@=='${ALIAS_TAG}'] | [0]" \
-              --output tsv | grep -qx "${ALIAS_TAG}"; then
+              --name romainecr --repository hermes \
+              --query "[?@=='${ALIAS_TAG}'] | [0]" --output tsv | grep -qx "${ALIAS_TAG}"; then
             echo "exists=true" >>"${GITHUB_OUTPUT}"
-            echo "Found reusable image ${REGISTRY}/${IMAGE}:${ALIAS_TAG}"
+            echo "Found reusable image hermes:${ALIAS_TAG}"
           else
             echo "exists=false" >>"${GITHUB_OUTPUT}"
-            echo "No reusable image for ${ALIAS_TAG}; will build"
           fi
 
-      - name: Build and push image
-        if: steps.image.outputs.exists != 'true'
+      - name: Build and push hermes
+        if: steps.hermes_image.outputs.exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.ALIAS_TAG }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE }}-build-cache:app
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE }}-build-cache:app,mode=max
+          tags: ${{ env.REGISTRY }}/hermes:${{ env.ALIAS_TAG }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/hermes-build-cache:app
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/hermes-build-cache:app,mode=max
 
-      - name: Bump chart image tag
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      # ── auth-proxy image ───────────────────────────────────────────
+      - name: Check existing auth-proxy image
+        id: auth_proxy_image
+        shell: bash
         run: |
-          tag="${ALIAS_TAG}"
-          bump() {
-            sed -i -E "s|^(  tag: ).*$|\1\"${tag}\"|" k8s/values.yaml
-          }
-          bump
+          set -euo pipefail
+          if az acr repository show-tags \
+              --name romainecr --repository auth-proxy \
+              --query "[?@=='${ALIAS_TAG}'] | [0]" --output tsv | grep -qx "${ALIAS_TAG}"; then
+            echo "exists=true" >>"${GITHUB_OUTPUT}"
+            echo "Found reusable image auth-proxy:${ALIAS_TAG}"
+          else
+            echo "exists=false" >>"${GITHUB_OUTPUT}"
+          fi
+
+      - name: Build and push auth-proxy
+        if: steps.auth_proxy_image.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: auth-proxy/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/auth-proxy:${{ env.ALIAS_TAG }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/auth-proxy-build-cache:app
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/auth-proxy-build-cache:app,mode=max
+
+      # ── chart bump ─────────────────────────────────────────────────
+      # Both image tags rewritten in a single commit so ArgoCD rolls them
+      # together (no flapping intermediate state).
+      - name: Bump chart image tags
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          NEW_TAG: ${{ env.ALIAS_TAG }}
+        run: |
+          set -euo pipefail
+          # Quoted heredoc — bash does NOT interpolate. The Python reads
+          # NEW_TAG from env. Bumps both YAML tag lines in one rewrite so
+          # ArgoCD sees a single coherent commit.
+          python3 - <<'PY'
+          import os, re, pathlib
+          tag = os.environ["NEW_TAG"]
+          path = pathlib.Path("k8s/values.yaml")
+          src = path.read_text()
+
+          def bump_block(text, anchor_re, new_tag):
+              """Find the YAML block whose top line matches anchor_re and
+              rewrite the first nested `tag: "..."` inside it."""
+              lines = text.splitlines(keepends=True)
+              out, in_block, anchor_indent = [], False, None
+              for line in lines:
+                  if not in_block and anchor_re.match(line):
+                      anchor_indent = len(line) - len(line.lstrip())
+                      in_block = True
+                      out.append(line)
+                      continue
+                  if in_block:
+                      stripped = line.lstrip()
+                      cur_indent = len(line) - len(stripped)
+                      # End of block: non-comment, non-blank at <= anchor indent.
+                      if stripped and cur_indent <= anchor_indent and not stripped.startswith("#"):
+                          in_block = False
+                      else:
+                          m = re.match(r'(\s+tag: )"[^"]*"\s*$', line)
+                          if m:
+                              out.append(m.group(1) + '"' + new_tag + '"\n')
+                              in_block = False  # done with this block
+                              continue
+                  out.append(line)
+              return "".join(out)
+
+          # hermes: top-level `image:` block
+          new = bump_block(src, re.compile(r'^image:\s*$'), tag)
+          # auth-proxy: top-level `authProxy:` block (nested image: tag:)
+          new = bump_block(new, re.compile(r'^authProxy:\s*$'), tag)
+
+          if new != src:
+              path.write_text(new)
+          PY
+
           if git diff --quiet k8s/values.yaml; then
             echo "no tag change"
             exit 0
@@ -113,16 +186,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add k8s/values.yaml
-          git commit -m "chart: bump image tag to ${tag} [skip ci]"
-          # Concurrent builds race on this line. On rebase conflict, latest tag wins.
+          git commit -m "chart: bump image tags to ${NEW_TAG} [skip ci]"
           for i in 1 2 3; do
             if git push origin HEAD:main; then exit 0; fi
             git fetch origin main
-            if ! git rebase origin/main; then
-              git checkout --theirs k8s/values.yaml
-              bump
-              git add k8s/values.yaml
-              git rebase --continue || git rebase --skip
-            fi
+            git rebase origin/main || git rebase --abort
           done
           git push origin HEAD:main
