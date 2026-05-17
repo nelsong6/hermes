@@ -26,17 +26,38 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
       containers:
-        # ─── gateway ─────────────────────────────────────────────────
-        # Long-running messaging gateway. Does NOT bind any HTTP port —
-        # it polls platform APIs outbound (Telegram/Slack/etc.) and
-        # writes to the shared SQLite at /data. The dashboard sidecar
-        # below is the web surface.
+        # ─── hermes (gateway + dashboard, single container) ──────────
+        # Matches upstream's docker/entrypoint.sh layout: gateway is the
+        # foreground process; the entrypoint backgrounds `hermes
+        # dashboard` inside this container when HERMES_DASHBOARD=1.
+        # Same PID namespace → dashboard's gateway-liveness check
+        # (reads gateway.pid + flock'd gateway.lock under HERMES_HOME)
+        # sees the gateway correctly. HERMES_DASHBOARD_TUI=1 enables
+        # the embedded TUI Chat tab in the dashboard UI.
+        #
+        # Upstream docs explicitly warn against running these as
+        # separate containers: "Running it as a separate container is
+        # not supported: the dashboard's gateway-liveness detection
+        # requires a shared PID namespace with the gateway process."
+        # (website/docs/user-guide/docker.md)
+        #
+        # The dashboard binds 127.0.0.1:9119 by default (no auth);
+        # the auth-proxy sidecar fronts it on 0.0.0.0:8080. Public
+        # entry → auth-proxy → 127.0.0.1:9119.
         - name: hermes
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: HERMES_DATA_DIR
               value: {{ .Values.config.dataDir | quote }}
+            - name: HERMES_DASHBOARD
+              value: "1"
+            - name: HERMES_DASHBOARD_TUI
+              value: "1"
+            - name: HERMES_DASHBOARD_HOST
+              value: "127.0.0.1"
+            - name: HERMES_DASHBOARD_PORT
+              value: "9119"
           envFrom:
             - configMapRef:
                 name: {{ .Values.config.name }}
@@ -47,40 +68,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: {{ .Values.persistence.mountPath }}
-        # ─── dashboard sidecar ───────────────────────────────────────
-        # `hermes dashboard` — built-in web UI from the upstream `[web]`
-        # extra (already in our `[all]` install). The dashboard has NO
-        # auth and gives read-write access to config + .env (LLM key);
-        # upstream refuses to bind to 0.0.0.0 without `--insecure` for
-        # exactly that reason. We honor that and bind to 127.0.0.1
-        # within the pod's network namespace. Reach it from a laptop with:
-        #
-        #     kubectl port-forward -n hermes pod/hermes-0 9119:9119
-        #     open http://localhost:9119
-        #
-        # kubectl port-forward connects through the kubelet to the pod's
-        # 127.0.0.1, so loopback-bound services are reachable that way.
-        # A Service does NOT see this bind — exposing the dashboard to
-        # the cluster needs an auth proxy in front (separate work).
-        {{- if .Values.dashboard.enabled }}
-        - name: dashboard
-          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["tini", "--", "hermes", "dashboard", "--port", "9119"]
-          env:
-            - name: HERMES_DATA_DIR
-              value: {{ .Values.config.dataDir | quote }}
-          envFrom:
-            - configMapRef:
-                name: {{ .Values.config.name }}
-            - secretRef:
-                name: {{ .Values.externalSecret.secretName }}
-          resources:
-            {{- toYaml .Values.dashboard.resources | nindent 12 }}
-          volumeMounts:
-            - name: data
-              mountPath: {{ .Values.persistence.mountPath }}
-        {{- end }}
         # ─── auth-proxy sidecar ──────────────────────────────────────
         # Go reverse proxy that fronts the dashboard with
         # auth.romaine.life cookie delegation. Binds 0.0.0.0:8080 (the
