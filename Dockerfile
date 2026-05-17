@@ -88,6 +88,8 @@ RUN apt-get update \
  && chown -R hermes:hermes /data
 
 COPY --from=py-build --chown=hermes:hermes /opt/venv /opt/venv
+COPY --chown=hermes:hermes entrypoint.sh /usr/local/bin/hermes-entrypoint.sh
+RUN chmod +x /usr/local/bin/hermes-entrypoint.sh
 
 USER hermes
 WORKDIR /home/hermes
@@ -96,7 +98,15 @@ VOLUME ["/data"]
 ENV HERMES_HOME=/data \
     HERMES_DATA_DIR=/data
 
-EXPOSE 8000
+# 8642 — gateway HTTP probe (used by dashboard's gateway-liveness check
+# when GATEWAY_HEALTH_URL is set; not currently exposed to the cluster).
+# 9119 — dashboard SPA + WebSocket (auth-proxy sidecar reaches this via
+# 127.0.0.1 in the pod's network namespace).
+EXPOSE 8642 9119
 
-ENTRYPOINT ["tini", "--", "hermes"]
+# The entrypoint backgrounds `hermes dashboard` when HERMES_DASHBOARD=1
+# is set (single-container shape from upstream's docker/entrypoint.sh).
+# The dashboard's PID-based gateway-liveness check then works because
+# both processes share this container's PID namespace.
+ENTRYPOINT ["tini", "--", "/usr/local/bin/hermes-entrypoint.sh"]
 CMD ["gateway"]

@@ -28,14 +28,16 @@ persistence:
   accessMode: ReadWriteOnce
   mountPath: /data
 
-# Container resource requests / limits. Tune after observing real usage.
+# Container resource requests / limits. Single container now runs both
+# gateway (foreground) and dashboard (backgrounded by entrypoint), so
+# headroom covers both processes. Tune after observing real usage.
 resources:
   requests:
-    cpu: 100m
-    memory: 256Mi
+    cpu: 150m
+    memory: 384Mi
   limits:
-    cpu: 1000m
-    memory: 1Gi
+    cpu: 1500m
+    memory: 1536Mi
 
 # Public ingress at hermes.romaine.life. Traffic terminates at the
 # auth-proxy sidecar (port 8080), which gates every request via
@@ -50,21 +52,12 @@ ingress:
   certIssuer: letsencrypt-prod
   tlsSecret: hermes-tls
 
-# Dashboard sidecar — `hermes dashboard` from upstream's `[web]` extra
-# (included in `[all]`, already in the image). Runs alongside the gateway
-# against the same /data volume, so it sees the same sessions / skills /
-# config / .env. Binds to 127.0.0.1:9119 inside the pod (upstream refuses
-# 0.0.0.0 without --insecure because no auth). Reached only via the
-# auth-proxy sidecar below.
-dashboard:
-  enabled: true
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
+# The dashboard process is no longer a separate container — it runs
+# inside the `hermes` container, backgrounded by our entrypoint script
+# when HERMES_DASHBOARD=1 (matching upstream's docker/entrypoint.sh).
+# That env var + HERMES_DASHBOARD_TUI=1 (to enable the Chat tab) are
+# set in templates/statefulset.yaml. No values here to tweak unless
+# we later carve dashboard knobs back out.
 
 # Auth-proxy sidecar — Go reverse proxy that fronts the dashboard with
 # auth.romaine.life cookie delegation. Per-request: forward inbound
