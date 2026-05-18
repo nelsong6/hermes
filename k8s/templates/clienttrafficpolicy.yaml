@@ -1,0 +1,46 @@
+{{- if .Values.ingress.enabled -}}
+# Force ALPN to HTTP/1.1 on the hermes listener so browser WebSocket
+# upgrades work end-to-end.
+#
+# Background: hermes serves a WebSocket-using SPA (the dashboard's
+# Chat / pty / events tabs all open `wss://hermes.romaine.life/api/{ws,
+# pty,events}`). Envoy's default HTTPS listener advertises ALPN
+# [h2, http/1.1] but does NOT set `http2_protocol_options.allow_connect
+# =true`, so it never sends SETTINGS_ENABLE_CONNECT_PROTOCOL=1 to the
+# browser. Modern Chrome reuses the existing h2 connection that loaded
+# the SPA and tries WS-over-h2 via RFC 8441 extended-CONNECT, never
+# gets the settings frame, and the stream silently dies before becoming
+# a request Envoy can log. End-user symptom: every `wss://` failing with
+# no HTTP code in DevTools and zero corresponding entries in the gateway
+# access log.
+#
+# The cluster-wide fix would be to enable allow_connect on every HCM
+# (requires EnvoyGateway.extensionApis.enableEnvoyPatchPolicy + an
+# EnvoyPatchPolicy doing the JSONPatch). That belongs in infra-bootstrap.
+# In the meantime, hermes is a single-tenant admin dashboard with no
+# practical h2-multiplexing need; restricting this one listener's ALPN
+# to http/1.1 makes the browser open a fresh h1.1 connection for the
+# whole page + the WS upgrades, and the standard `Upgrade: websocket`
+# flow works end-to-end through Envoy → the auth-proxy → hermes'
+# dashboard. Every other listener on the shared Gateway is unchanged.
+#
+# Why sectionName=hermes-https: ClientTrafficPolicy can target a Gateway
+# but the only way to address a single XListenerSet-contributed listener
+# is by section-name match — and the match lands on the FIRST listener
+# with that name. Naming this XLS's listener uniquely (see xlistenerset.
+# yaml) is what makes section targeting hit only us.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: hermes-h1-alpn
+  namespace: {{ .Values.ingress.gatewayNamespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ .Values.ingress.gatewayName }}
+      sectionName: hermes-https
+  tls:
+    alpnProtocols:
+      - http/1.1
+{{- end }}
