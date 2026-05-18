@@ -74,7 +74,19 @@ func NewProxy(upstreamURL, publicHostname, signinURL string, resolver SessionRes
 		// IS the security boundary; the dashboard should see its
 		// caller as the loopback proxy. The real user identity is
 		// surfaced via X-Forwarded-User/-Sub/-Role above.
-		req.Header.Del("X-Forwarded-For")
+		//
+		// IMPORTANT: this must be an explicit nil set, NOT Header.Del.
+		// ReverseProxy.ServeHTTP appends X-Forwarded-For from
+		// req.RemoteAddr AFTER the Director returns, gated by the
+		// presence-of-nil sentinel:
+		//   prior, ok := outreq.Header["X-Forwarded-For"]
+		//   omit := ok && prior == nil
+		//   if !omit { Header.Set(...) }
+		// Header.Del removes the key entirely so ok=false → omit=false
+		// → the auto-add still fires. Setting to nil leaves ok=true,
+		// prior==nil → omit=true → no auto-add. (PR #8 used Del and
+		// was a no-op; this PR is the actual fix.)
+		req.Header["X-Forwarded-For"] = nil
 	}
 
 	return &Proxy{
