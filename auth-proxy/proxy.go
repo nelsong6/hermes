@@ -75,6 +75,19 @@ func NewProxy(upstreamURL, publicHostname, signinURL string, resolver SessionRes
 // ServeHTTP implements http.Handler. Health and ready probes (/healthz,
 // /readyz) bypass auth so kubelet probes work without a session.
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Debug logging — temporary, see PR for context. Logs method, path,
+	// whether the request is a WS upgrade, cookie presence, accept,
+	// and a snippet of the user-agent. Helps diagnose why upgrades
+	// fail through the proxy.
+	isUpgrade := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+	cookiePresent := r.Header.Get("Cookie") != ""
+	ua := r.Header.Get("User-Agent")
+	if len(ua) > 40 {
+		ua = ua[:40]
+	}
+	p.logger.Printf("req %s %s upgrade=%v cookie=%v accept=%q ua=%q",
+		r.Method, r.URL.Path, isUpgrade, cookiePresent, r.Header.Get("Accept"), ua)
+
 	if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "ok")
@@ -86,17 +99,21 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ae := asAuthError(err)
 		switch ae.Status {
 		case http.StatusUnauthorized:
-			// Only 302 on browser GET (Accept: text/html). API
-			// callers / curl get a 401 + WWW-Authenticate so they
-			// don't follow into an HTML splash by surprise.
-			if wantsHTML(r) && r.Method == http.MethodGet {
+			// WebSocket upgrades can't follow 302s — return 401 so
+			// the browser surfaces it instead of attempting a
+			// redirect. (For non-upgrade browser GETs, the redirect
+			// is fine and even desirable.)
+			if !isUpgrade && wantsHTML(r) && r.Method == http.MethodGet {
+				p.logger.Printf("decision: redirect-to-signin (unauthed browser GET)")
 				p.redirectToSignin(w, r)
 				return
 			}
+			p.logger.Printf("decision: 401 unauthed (%s)", ae.Message)
 			w.Header().Set("WWW-Authenticate", `Cookie realm="hermes.romaine.life"`)
 			http.Error(w, "unauthorized: "+ae.Message, http.StatusUnauthorized)
 			return
 		case http.StatusForbidden:
+			p.logger.Printf("decision: 403 forbidden (%s)", ae.Message)
 			http.Error(w, "forbidden: "+ae.Message, http.StatusForbidden)
 			return
 		default:
@@ -114,6 +131,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Header.Set("X-Forwarded-User-Role", user.Role)
 	r.Header.Set("X-Forwarded-Proto", "https")
 
+	p.logger.Printf("decision: forward to upstream (user=%s upgrade=%v)", user.Email, isUpgrade)
 	p.upstream.ServeHTTP(w, r)
 }
 
