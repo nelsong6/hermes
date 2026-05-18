@@ -61,6 +61,20 @@ func NewProxy(upstreamURL, publicHostname, signinURL string, resolver SessionRes
 		// the dashboard has no notion of auth.romaine.life cookies
 		// and we don't want them leaking into Hermes' own state.
 		stripCookieDomain(req, ".romaine.life")
+		// Suppress the X-Forwarded-For that httputil.ReverseProxy adds
+		// by default. The hermes dashboard binds to 127.0.0.1 and gates
+		// every /api/{ws,events,pty} WebSocket on the client IP being
+		// in {127.0.0.1, ::1, localhost, testclient}. Uvicorn's default
+		// proxy_headers=True rewrites ws.client.host from XFF when the
+		// TCP source is a trusted IP — and 127.0.0.1 (where the
+		// reverse-proxy connects from) is uvicorn's default trust list.
+		// Passing the browser's public IP through would make every WS
+		// upgrade close with 4403 (Hermes' "non-loopback client") and
+		// surface as a generic 'failed' in DevTools. The auth-proxy
+		// IS the security boundary; the dashboard should see its
+		// caller as the loopback proxy. The real user identity is
+		// surfaced via X-Forwarded-User/-Sub/-Role above.
+		req.Header.Del("X-Forwarded-For")
 	}
 
 	return &Proxy{
