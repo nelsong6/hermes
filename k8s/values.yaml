@@ -3,7 +3,7 @@ image:
   # SHA-pinned. `build.yaml` rewrites this line on every push to main via a
   # `[skip ci]` follow-up commit. Quote the value so all-digit short SHAs
   # aren't reformatted as scientific notation by YAML.
-  tag: "app-31e4e12ab78205a180672c48e0056e84cc339f2a"
+  tag: "app-63667c66fcb903130922ad9b9e6519f6f02324e4"
   pullPolicy: IfNotPresent
 
 namespace: hermes
@@ -72,7 +72,7 @@ authProxy:
     # placeholder makes the chart syntactically valid; the pod will
     # ImagePullBackOff until the real tag is committed — visible signal,
     # no infinite reconcile churn.
-    tag: "app-31e4e12ab78205a180672c48e0056e84cc339f2a"
+    tag: "app-63667c66fcb903130922ad9b9e6519f6f02324e4"
     pullPolicy: IfNotPresent
   port: 8080
   # Key in the auth.romaine.life user's `apps` JSON column to check for
