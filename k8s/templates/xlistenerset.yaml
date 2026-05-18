@@ -11,7 +11,12 @@ spec:
     name: {{ .Values.ingress.gatewayName }}
     namespace: {{ .Values.ingress.gatewayNamespace }}
   listeners:
-    - name: https
+    # Named `hermes-https` (not just `https`) so a ClientTrafficPolicy can
+    # target this exact listener via sectionName — Envoy Gateway's section-
+    # name match on a parent Gateway lands on the first XListenerSet-
+    # contributed listener with the matching name, so a unique name is the
+    # only way to address us specifically. See clienttrafficpolicy.yaml.
+    - name: hermes-https
       protocol: HTTPS
       port: 443
       hostname: {{ .Values.ingress.hostname }}
