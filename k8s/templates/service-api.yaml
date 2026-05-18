@@ -1,0 +1,25 @@
+{{- if .Values.apiServer.enabled -}}
+# Cluster-internal Service for Hermes' OpenAI-compatible API server.
+# Reachable at `hermes-api.<namespace>.svc.cluster.local:8642` from
+# inside the cluster. NOT attached to any HTTPRoute / XListenerSet —
+# the API surface stays off the public internet. Bearer auth on
+# inbound, configured via the API_SERVER_KEY env var (from
+# `hermes-api-bearer` in KV, pulled by ExternalSecret).
+#
+# Today's only consumer is tank-operator's backend, which posts to
+# /v1/runs for hermes_gui session turns (see
+# nelsong6/tank-operator#540). Other in-cluster clients can use the
+# same URL; nothing about the API server is Tank-specific.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-api
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: hermes
+  ports:
+    - name: api
+      port: {{ .Values.apiServer.port }}
+      targetPort: hermes-api
+{{- end }}

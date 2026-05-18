@@ -108,6 +108,11 @@ externalSecret:
   keys:
     - envVar: OPENROUTER_API_KEY      # or OPENAI_API_KEY / NOUS_PORTAL_API_KEY
       kvKey: hermes-llm-api-key
+    # Bearer token for the OpenAI-compatible API server (port 8642).
+    # Tank's backend reads the same KV secret on its side and uses it
+    # to authenticate /v1/runs calls — see nelsong6/tank-operator#540.
+    - envVar: API_SERVER_KEY
+      kvKey: hermes-api-bearer
     # Per-platform bot tokens — enable as platforms are turned on.
     # - envVar: TELEGRAM_BOT_TOKEN
     #   kvKey: hermes-telegram-bot-token
@@ -119,3 +124,72 @@ config:
   name: hermes-config
   # Where Hermes writes its SQLite + skills. Must match persistence.mountPath.
   dataDir: /data
+  # YAML config file Hermes reads at boot for non-secret settings
+  # (notably the `mcp_servers` map). Mounted into the hermes container
+  # at /data/config.yaml via a subPath mount from a sibling ConfigMap;
+  # see templates/configmap-config-yaml.yaml. The file is read-only at
+  # the mount point — Hermes' Settings UI cannot edit MCP servers in
+  # this deployment; chart / Helm is the source of truth.
+  yamlConfigMapName: hermes-config-yaml
+
+# OpenAI-compatible API server (POST /v1/chat/completions, /v1/responses,
+# /v1/runs, …). Tank's backend drives Hermes through /v1/runs in
+# nelsong6/tank-operator#540's `hermes_gui` session mode. Bound to
+# 0.0.0.0 so it's reachable on the cluster-internal Service (see
+# templates/service-api.yaml). Public HTTPRoute is NOT extended — the
+# API server stays off the public ingress; only the auth-proxy-fronted
+# dashboard is publicly reachable.
+apiServer:
+  enabled: true
+  port: 8642
+  host: "0.0.0.0"
+  # Model name advertised on GET /v1/models. Tank ignores the model
+  # field per the Hermes API doc ("Model field is cosmetic"), but a
+  # human-readable label is useful in the dashboard's session list.
+  modelName: "hermes-agent"
+
+# mcp-auth-proxy sidecar. Same image Tank session pods bake inline;
+# carved out as a standalone image in nelsong6/tank-operator#541.
+# Listens on 127.0.0.1:9991..9996 inside the pod and injects fresh
+# bearer auth (default SA token for the K8s-SAR-gated MCPs; auth.romaine.life
+# service JWT for the romaine-JWT-gated ones) on every outbound call.
+# Metrics on 0.0.0.0:9990, scraped by the kube-prometheus-stack
+# PodMonitor in this chart (k8s/templates/podmonitor.yaml — added when
+# observability arrives).
+mcpAuthProxy:
+  enabled: true
+  image:
+    repository: romainecr.azurecr.io/mcp-auth-proxy
+    # Bumped by build.yaml on push-to-main once nelsong6/tank-operator
+    # publishes the standalone image. Placeholder until then — pod will
+    # ImagePullBackOff with a visible signal, no reconcile churn. Same
+    # posture as the original auth-proxy tag placeholder.
+    tag: "mcp-auth-proxy-placeholder"
+    pullPolicy: IfNotPresent
+  metricsPort: 9990
+  resources:
+    requests:
+      cpu: 10m
+      memory: 48Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi
+
+# Tank's in-cluster MCP servers Hermes is wired to call. Mirror exactly
+# the LISTENERS table in mcp-auth-proxy's server.py — the proxy already
+# carries the upstream service DNS for each port, so this block is just
+# the local-port → MCP-name map Hermes' config.yaml gets seeded with.
+# Adding/removing entries here requires a matching change to mcp-auth-proxy.
+mcpServers:
+  azure-personal:
+    url: "http://127.0.0.1:9991"
+  github:
+    url: "http://127.0.0.1:9992"
+  k8s:
+    url: "http://127.0.0.1:9993"
+  argocd:
+    url: "http://127.0.0.1:9994"
+  glimmung:
+    url: "http://127.0.0.1:9995"
+  tank-operator:
+    url: "http://127.0.0.1:9996"

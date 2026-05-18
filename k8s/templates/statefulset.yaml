@@ -58,16 +58,47 @@ spec:
               value: "127.0.0.1"
             - name: HERMES_DASHBOARD_PORT
               value: "9119"
+            {{- if .Values.apiServer.enabled }}
+            # OpenAI-compatible API server. Bound to 0.0.0.0 so the
+            # cluster-internal Service (templates/service-api.yaml) can
+            # reach it; API_SERVER_KEY (Bearer token) is read from the
+            # ExternalSecret-managed Secret via envFrom below. Tank's
+            # backend drives this surface through /v1/runs — see
+            # nelsong6/tank-operator#540.
+            - name: API_SERVER_ENABLED
+              value: "true"
+            - name: API_SERVER_HOST
+              value: {{ .Values.apiServer.host | quote }}
+            - name: API_SERVER_PORT
+              value: {{ .Values.apiServer.port | quote }}
+            - name: API_SERVER_MODEL_NAME
+              value: {{ .Values.apiServer.modelName | quote }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ .Values.config.name }}
             - secretRef:
                 name: {{ .Values.externalSecret.secretName }}
+          {{- if .Values.apiServer.enabled }}
+          ports:
+            - name: hermes-api
+              containerPort: {{ .Values.apiServer.port }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: {{ .Values.persistence.mountPath }}
+            # Hermes' YAML config (mcp_servers map today) is
+            # rendered into a sibling ConfigMap and projected onto
+            # /data/config.yaml via subPath. subPath mount is
+            # read-only at the container, so Hermes' Settings UI
+            # cannot edit MCP servers in this deployment — chart /
+            # Helm is the source of truth, which is what we want.
+            - name: hermes-config-yaml
+              mountPath: {{ .Values.config.dataDir }}/config.yaml
+              subPath: config.yaml
+              readOnly: true
         # ─── auth-proxy sidecar ──────────────────────────────────────
         # Go reverse proxy that fronts the dashboard with
         # auth.romaine.life cookie delegation. Binds 0.0.0.0:8080 (the
@@ -109,6 +140,85 @@ spec:
           resources:
             {{- toYaml .Values.authProxy.resources | nindent 12 }}
         {{- end }}
+        # ─── mcp-auth-proxy sidecar ──────────────────────────────────
+        # Localhost reverse proxy that injects fresh bearer auth on
+        # outbound MCP calls. Same image (and same per-port behavior)
+        # Tank session pods carry today — carved out into a standalone
+        # publishable image in nelsong6/tank-operator#541 so non-Tank
+        # pods can sidecar it without pulling a full session container.
+        #
+        # Listens on 127.0.0.1:9991..9996 inside the pod (the MCP
+        # listeners), plus 0.0.0.0:{{ .Values.mcpAuthProxy.metricsPort }}
+        # for Prometheus /metrics + /healthz. Per upstream, the
+        # 127.0.0.1 listeners deliberately stay off the network — only
+        # the hermes container in the same pod's net namespace reaches
+        # them. Hermes' config.yaml has six `mcp_servers` entries
+        # pointed at those localhost ports (see
+        # templates/configmap-config-yaml.yaml).
+        #
+        # Auth shape per MCP server:
+        # - K8s SAR-gated (azure-personal, k8s, argocd, glimmung,
+        #   tank-operator): proxy attaches the default SA token from
+        #   /var/run/secrets/kubernetes.io/serviceaccount/token
+        #   (auto-mounted by kubelet) to outbound Authorization.
+        #   Each MCP server's chart admits Hermes' SA via its
+        #   per-MCP RoleBinding — separate one-line PRs per MCP repo
+        #   (see nelsong6/tank-operator#540's rollout chain).
+        # - auth.romaine.life-JWT-gated (github application-layer;
+        #   X-Auth-Romaine-Token side header for tank-operator /
+        #   glimmung): proxy exchanges the audience-pinned projected
+        #   SA token (mounted at /var/run/secrets/auth.romaine.life)
+        #   for a role=service JWT via auth.romaine.life's
+        #   /api/auth/exchange/k8s. Hermes is onboarded as a
+        #   pod-stable consumer in nelsong6/auth#41.
+        {{- if .Values.mcpAuthProxy.enabled }}
+        - name: mcp-auth-proxy
+          image: {{ .Values.mcpAuthProxy.image.repository }}:{{ .Values.mcpAuthProxy.image.tag }}
+          imagePullPolicy: {{ .Values.mcpAuthProxy.image.pullPolicy }}
+          env:
+            - name: MCP_AUTH_PROXY_METRICS_PORT
+              value: {{ .Values.mcpAuthProxy.metricsPort | quote }}
+            # SESSION_ID intentionally unset: Hermes has no per-pod
+            # session identity (singleton serving many users). The
+            # proxy will omit X-Tank-Origin-Session-Id and
+            # mcp-tank-operator's user-bubble avatar code path will
+            # fall back to the human-Gravatar rendering. Per-request
+            # session attribution forward through the MCP layer is
+            # the same out-of-scope future enhancement called out on
+            # the other pod-stable consumers (see
+            # nelsong6/auth/src/service-exchange.ts's pod-stable
+            # comment).
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.mcpAuthProxy.metricsPort }}
+          volumeMounts:
+            - name: auth-romaine-sa-token
+              mountPath: /var/run/secrets/auth.romaine.life
+              readOnly: true
+          resources:
+            {{- toYaml .Values.mcpAuthProxy.resources | nindent 12 }}
+        {{- end }}
+      volumes:
+        - name: hermes-config-yaml
+          configMap:
+            name: {{ .Values.config.yamlConfigMapName }}
+        # Projected SA token audience-pinned to auth.romaine.life.
+        # The mcp-auth-proxy sidecar POSTs this token to
+        # auth.romaine.life/api/auth/exchange/k8s and receives a
+        # role=service JWT it then injects into outbound calls to
+        # romaine-JWT-gated MCP servers (mcp-github application-layer
+        # auth; X-Auth-Romaine-Token side header for mcp-tank-operator /
+        # mcp-glimmung). Distinct audience and distinct file path from
+        # the default SA token (auto-mounted by kubelet at the
+        # well-known path) so a stolen token cannot be replayed
+        # across services. Same shape Tank session pods use.
+        - name: auth-romaine-sa-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: "https://auth.romaine.life"
+                  expirationSeconds: 3600
+                  path: token
   volumeClaimTemplates:
     - metadata:
         name: data
