@@ -108,11 +108,13 @@ externalSecret:
   keys:
     - envVar: OPENROUTER_API_KEY      # or OPENAI_API_KEY / NOUS_PORTAL_API_KEY
       kvKey: hermes-llm-api-key
-    # Bearer token for the OpenAI-compatible API server (port 8642).
-    # Tank's backend reads the same KV secret on its side and uses it
-    # to authenticate /v1/runs calls — see nelsong6/tank-operator#540.
-    - envVar: API_SERVER_KEY
-      kvKey: hermes-api-bearer
+    # The OpenAI-compatible API server (port 8642) is now gated by an
+    # auth-proxy sidecar in service-jwt mode (verifies auth.romaine.life
+    # role=service JWTs against the IdP's JWKS, pins actor_email domain
+    # to service.tank-operator.romaine.life so only Tank's orchestrator
+    # can drive the API). Hermes' API server binds 127.0.0.1 only, so
+    # API_SERVER_KEY is no longer required and is intentionally not in
+    # this list. See nelsong6/tank-operator#540.
     # Per-platform bot tokens — enable as platforms are turned on.
     # - envVar: TELEGRAM_BOT_TOKEN
     #   kvKey: hermes-telegram-bot-token
@@ -133,20 +135,53 @@ config:
   yamlConfigMapName: hermes-config-yaml
 
 # OpenAI-compatible API server (POST /v1/chat/completions, /v1/responses,
-# /v1/runs, …). Tank's backend drives Hermes through /v1/runs in
-# nelsong6/tank-operator#540's `hermes_gui` session mode. Bound to
-# 0.0.0.0 so it's reachable on the cluster-internal Service (see
-# templates/service-api.yaml). Public HTTPRoute is NOT extended — the
-# API server stays off the public ingress; only the auth-proxy-fronted
-# dashboard is publicly reachable.
+# /v1/runs, …). Tank's orchestrator drives Hermes through /v1/runs in
+# nelsong6/tank-operator#540's `hermes_gui` session mode.
+#
+# Bound to 127.0.0.1 only — never reachable directly from the network.
+# A second auth-proxy sidecar (see apiAuthProxy below) fronts it on
+# 0.0.0.0:8643, verifying auth.romaine.life role=service JWTs and pinning
+# actor_email domain. The cluster-internal Service (templates/service-api.yaml)
+# targets the auth-proxy port, not the Hermes container. The public
+# HTTPRoute is NOT extended; only the dashboard's auth-proxy remains
+# publicly reachable.
+#
+# API_SERVER_KEY is intentionally NOT set. Hermes' own docs document
+# the static-bearer check as required for non-loopback binds; binding
+# 127.0.0.1 makes the bearer optional, and we want exactly one auth
+# layer (the JWT-verifying auth-proxy) rather than two parallel ones.
 apiServer:
   enabled: true
   port: 8642
-  host: "0.0.0.0"
+  host: "127.0.0.1"
   # Model name advertised on GET /v1/models. Tank ignores the model
   # field per the Hermes API doc ("Model field is cosmetic"), but a
   # human-readable label is useful in the dashboard's session list.
   modelName: "hermes-agent"
+
+# Second auth-proxy sidecar — service-JWT mode. Fronts the API server
+# (127.0.0.1:8642) on 0.0.0.0:8643. Same image as the dashboard's
+# auth-proxy; different env (AUTH_MODE=service-jwt). Verifies inbound
+# Authorization: Bearer <jwt> against auth.romaine.life's JWKS,
+# requires role=service, and pins actor_email's domain to the
+# tank-operator orchestrator's reserved synthetic-email domain (added
+# in nelsong6/auth#42). Any other role=service JWT (sessions, mcp-*,
+# admin-minted service tokens) is rejected with 403.
+apiAuthProxy:
+  enabled: true
+  # Same image as the dashboard's auth-proxy. The bump-tag step in
+  # .github/workflows/build.yaml rewrites authProxy.image.tag on every
+  # push; this block doesn't get its own tag override — it reuses
+  # authProxy.image so a single auth-proxy build serves both sidecars.
+  port: 8643
+  allowedActorEmailDomains: "service.tank-operator.romaine.life"
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 # mcp-auth-proxy sidecar. Same image Tank session pods bake inline;
 # carved out as a standalone image in nelsong6/tank-operator#541.

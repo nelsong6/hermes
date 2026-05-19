@@ -1,15 +1,21 @@
-{{- if .Values.apiServer.enabled -}}
+{{- if and .Values.apiServer.enabled .Values.apiAuthProxy.enabled -}}
 # Cluster-internal Service for Hermes' OpenAI-compatible API server.
 # Reachable at `hermes-api.<namespace>.svc.cluster.local:8642` from
 # inside the cluster. NOT attached to any HTTPRoute / XListenerSet —
-# the API surface stays off the public internet. Bearer auth on
-# inbound, configured via the API_SERVER_KEY env var (from
-# `hermes-api-bearer` in KV, pulled by ExternalSecret).
+# the API surface stays off the public internet.
 #
-# Today's only consumer is tank-operator's backend, which posts to
-# /v1/runs for hermes_gui session turns (see
-# nelsong6/tank-operator#540). Other in-cluster clients can use the
-# same URL; nothing about the API server is Tank-specific.
+# The Service's targetPort is the api-auth-proxy sidecar (port 8643
+# inside the pod, container port named `hermes-api`), NOT the Hermes
+# API server directly. Hermes' API server binds 127.0.0.1 only; the
+# auth-proxy verifies inbound Authorization: Bearer <jwt> against
+# auth.romaine.life's JWKS (role=service AND actor_email domain pinned
+# to service.tank-operator.romaine.life) and forwards to the loopback
+# API server. See nelsong6/tank-operator#540 and nelsong6/auth#42.
+#
+# Today's only legitimate consumer is tank-operator's orchestrator,
+# which mints an auth.romaine.life service JWT and posts to /v1/runs
+# for hermes_gui session turns. Other in-cluster clients can call the
+# same URL; the auth-proxy gates by JWT not by client identity.
 apiVersion: v1
 kind: Service
 metadata:
