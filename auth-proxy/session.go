@@ -57,9 +57,19 @@ type AuthError struct {
 
 func (e AuthError) Error() string { return e.Message }
 
-// SessionResolver looks up a user from a cookie header.
+// SessionResolver looks up a user from an inbound HTTP request. The
+// concrete delegate decides which header to read (Cookie for the
+// dashboard's cookie-delegate path, Authorization: Bearer <jwt> for the
+// service-JWT path that gates Hermes' API server). Resolve must NOT
+// mutate the request — it's still going to be forwarded upstream.
 type SessionResolver interface {
-	Resolve(ctx context.Context, cookie string) (User, error)
+	Resolve(ctx context.Context, r *http.Request) (User, error)
+	// RedirectOnUnauthed reports whether a 401 from this resolver
+	// should be allowed to turn into a 302 to the sign-in URL for
+	// browser GETs. True for cookie mode (humans get a redirect), false
+	// for the service-JWT path (callers are services; redirect is
+	// always wrong).
+	RedirectOnUnauthed() bool
 }
 
 // CookieDelegate calls auth.romaine.life's /api/auth/get-session and
@@ -83,11 +93,18 @@ func NewCookieDelegate(endpoint, appKey string) *CookieDelegate {
 	}
 }
 
-// Resolve takes the raw Cookie header value and returns the user or an
-// AuthError. The same error gets cached as the success path so we don't
-// re-pound auth.romaine.life on every unauthenticated request.
-func (d *CookieDelegate) Resolve(ctx context.Context, cookie string) (User, error) {
-	cookie = strings.TrimSpace(cookie)
+// RedirectOnUnauthed is true for the cookie path — a browser GET with
+// no/bad cookie should 302 to Entra-via-auth.romaine.life so the user
+// signs in. The proxy itself decides whether the inbound request is a
+// browser GET; the resolver just opts in.
+func (d *CookieDelegate) RedirectOnUnauthed() bool { return true }
+
+// Resolve extracts the Cookie header from the request and returns the
+// user or an AuthError. The same error gets cached as the success path
+// so we don't re-pound auth.romaine.life on every unauthenticated
+// request.
+func (d *CookieDelegate) Resolve(ctx context.Context, r *http.Request) (User, error) {
+	cookie := strings.TrimSpace(r.Header.Get("Cookie"))
 	if cookie == "" {
 		return User{}, AuthError{Status: http.StatusUnauthorized, Message: "no session cookie"}
 	}

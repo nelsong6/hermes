@@ -59,12 +59,14 @@ spec:
             - name: HERMES_DASHBOARD_PORT
               value: "9119"
             {{- if .Values.apiServer.enabled }}
-            # OpenAI-compatible API server. Bound to 0.0.0.0 so the
-            # cluster-internal Service (templates/service-api.yaml) can
-            # reach it; API_SERVER_KEY (Bearer token) is read from the
-            # ExternalSecret-managed Secret via envFrom below. Tank's
-            # backend drives this surface through /v1/runs — see
-            # nelsong6/tank-operator#540.
+            # OpenAI-compatible API server. Bound to 127.0.0.1 ONLY —
+            # never reachable from the network directly. The
+            # apiAuthProxy sidecar below verifies inbound service JWTs
+            # against auth.romaine.life's JWKS, pins actor_email
+            # domain, then forwards here. With this loopback bind,
+            # Hermes' own docs no longer require API_SERVER_KEY — the
+            # JWT-verifying sidecar is the only auth layer (and the
+            # only path to the API server). See nelsong6/tank-operator#540.
             - name: API_SERVER_ENABLED
               value: "true"
             - name: API_SERVER_HOST
@@ -79,11 +81,11 @@ spec:
                 name: {{ .Values.config.name }}
             - secretRef:
                 name: {{ .Values.externalSecret.secretName }}
-          {{- if .Values.apiServer.enabled }}
-          ports:
-            - name: hermes-api
-              containerPort: {{ .Values.apiServer.port }}
-          {{- end }}
+          # No ports: the API server binds 127.0.0.1 only and is
+          # reached cross-container via the same pod's loopback by the
+          # apiAuthProxy sidecar below. Exposing a containerPort here
+          # would be misleading — kubelet would not route external
+          # traffic to a loopback bind.
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
@@ -139,6 +141,59 @@ spec:
             periodSeconds: 30
           resources:
             {{- toYaml .Values.authProxy.resources | nindent 12 }}
+        {{- end }}
+        # ─── api auth-proxy sidecar (service-jwt mode) ──────────────
+        # Same image as the cookie-mode auth-proxy above; different env
+        # selects the SessionResolver implementation. Binds 0.0.0.0 on
+        # apiAuthProxy.port (default 8643), verifies inbound
+        # Authorization: Bearer <jwt> against auth.romaine.life's JWKS
+        # (require role=service AND actor_email domain in
+        # allowedActorEmailDomains), and forwards authenticated calls
+        # to 127.0.0.1:apiServer.port (the Hermes API server). The
+        # cluster-internal Service `hermes-api` targets this port. See
+        # nelsong6/tank-operator#540 for the cross-repo design and
+        # nelsong6/auth#42 for the orchestrator service-exchange entry.
+        #
+        # Today's only legitimate caller is the tank-operator orchestrator,
+        # whose service-exchange JWT carries actor_email under
+        # service.tank-operator.romaine.life (configured below). Sessions,
+        # mcp-* shared services, hermes-self, and admin-minted service
+        # tokens all carry role=service too but get 403'd at the
+        # domain pin.
+        {{- if and .Values.apiAuthProxy.enabled .Values.apiServer.enabled }}
+        - name: api-auth-proxy
+          image: {{ .Values.authProxy.image.repository }}:{{ .Values.authProxy.image.tag }}
+          imagePullPolicy: {{ .Values.authProxy.image.pullPolicy }}
+          ports:
+            - name: hermes-api
+              containerPort: {{ .Values.apiAuthProxy.port }}
+          env:
+            - name: AUTH_MODE
+              value: "service-jwt"
+            - name: UPSTREAM_URL
+              value: "http://127.0.0.1:{{ .Values.apiServer.port }}"
+            # PUBLIC_HOSTNAME / AUTH_SESSION_URL / AUTH_SIGNIN_URL are
+            # cookie-mode-only and intentionally omitted here. The
+            # service-jwt path never redirects, so these are unused;
+            # loadConfig in main.go enforces required-fields per mode.
+            - name: LISTEN_ADDR
+              value: ":{{ .Values.apiAuthProxy.port }}"
+            - name: ALLOWED_ACTOR_EMAIL_DOMAINS
+              value: {{ .Values.apiAuthProxy.allowedActorEmailDomains | quote }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: hermes-api
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: hermes-api
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.apiAuthProxy.resources | nindent 12 }}
         {{- end }}
         # ─── mcp-auth-proxy sidecar ──────────────────────────────────
         # Localhost reverse proxy that injects fresh bearer auth on

@@ -20,3 +20,7 @@ charts/
 .env
 .env.*
 !.env.example
+
+# Auth-proxy build output. `go build` in auth-proxy/ writes an
+# `auth-proxy` binary; never commit it.
+/auth-proxy/auth-proxy

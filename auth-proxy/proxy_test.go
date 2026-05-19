@@ -11,13 +11,16 @@ import (
 )
 
 type stubResolver struct {
-	user User
-	err  error
+	user     User
+	err      error
+	redirect bool
 }
 
-func (s *stubResolver) Resolve(_ context.Context, _ string) (User, error) {
+func (s *stubResolver) Resolve(_ context.Context, _ *http.Request) (User, error) {
 	return s.user, s.err
 }
+
+func (s *stubResolver) RedirectOnUnauthed() bool { return s.redirect }
 
 type discardLogger struct{}
 
@@ -29,7 +32,7 @@ func TestProxy_HealthBypassesAuth(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 
-	p, err := NewProxy(upstream.URL, "hermes.romaine.life", "https://auth.romaine.life/signin", &stubResolver{err: AuthError{Status: 401, Message: "no cookie"}}, discardLogger{})
+	p, err := NewProxy(upstream.URL, "hermes.romaine.life", "https://auth.romaine.life/signin", &stubResolver{err: AuthError{Status: 401, Message: "no cookie"}, redirect: true}, discardLogger{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +50,7 @@ func TestProxy_BrowserGetRedirectsToSignin(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 
-	p, err := NewProxy(upstream.URL, "hermes.romaine.life", "https://auth.romaine.life/api/auth/sign-in/social/microsoft", &stubResolver{err: AuthError{Status: 401, Message: "no cookie"}}, discardLogger{})
+	p, err := NewProxy(upstream.URL, "hermes.romaine.life", "https://auth.romaine.life/api/auth/sign-in/social/microsoft", &stubResolver{err: AuthError{Status: 401, Message: "no cookie"}, redirect: true}, discardLogger{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,13 +83,43 @@ func TestProxy_ApiCallerGets401NotRedirect(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 
-	p, _ := NewProxy(upstream.URL, "hermes.romaine.life", "https://auth.romaine.life/signin", &stubResolver{err: AuthError{Status: 401, Message: "no cookie"}}, discardLogger{})
+	p, _ := NewProxy(upstream.URL, "hermes.romaine.life", "https://auth.romaine.life/signin", &stubResolver{err: AuthError{Status: 401, Message: "no cookie"}, redirect: true}, discardLogger{})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/things", nil)
 	req.Header.Set("Accept", "application/json")
 	p.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestProxy_ServiceJWTMode_NeverRedirects(t *testing.T) {
+	// In service-jwt mode, the resolver opts out of redirects: even a
+	// browser-shaped GET with Accept: text/html that fails auth must
+	// return 401, not 302. Service callers (and curl) can't follow
+	// sign-in redirects; the proxy must say "your token is wrong"
+	// loudly.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("should not hit upstream")
+	}))
+	t.Cleanup(upstream.Close)
+
+	p, _ := NewProxy(upstream.URL, "hermes.romaine.life", "https://auth.romaine.life/signin", &stubResolver{err: AuthError{Status: 401, Message: "JWT verify failed"}, redirect: false}, discardLogger{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/runs", nil)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml") // browser-looking
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 in service-jwt mode (never redirect), got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "" {
+		t.Fatalf("expected no Location header in service-jwt mode, got %q", loc)
+	}
+	// Bearer-style WWW-Authenticate so a well-behaved client knows the
+	// auth scheme to retry with.
+	if wwwAuth := rec.Header().Get("WWW-Authenticate"); !strings.Contains(wwwAuth, "Bearer") {
+		t.Fatalf("expected Bearer WWW-Authenticate in service-jwt mode, got %q", wwwAuth)
 	}
 }
 

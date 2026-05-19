@@ -120,7 +120,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := p.resolver.Resolve(r.Context(), r.Header.Get("Cookie"))
+	user, err := p.resolver.Resolve(r.Context(), r)
 	if err != nil {
 		ae := asAuthError(err)
 		switch ae.Status {
@@ -128,14 +128,21 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// WebSocket upgrades can't follow 302s — return 401 so
 			// the browser surfaces it instead of attempting a
 			// redirect. (For non-upgrade browser GETs, the redirect
-			// is fine and even desirable.)
-			if !isUpgrade && wantsHTML(r) && r.Method == http.MethodGet {
+			// is fine and even desirable — but only in cookie mode.
+			// In service-JWT mode the caller is always a service and
+			// a redirect is always the wrong answer; the resolver
+			// opts out via RedirectOnUnauthed.)
+			if p.resolver.RedirectOnUnauthed() && !isUpgrade && wantsHTML(r) && r.Method == http.MethodGet {
 				p.logger.Printf("decision: redirect-to-signin (unauthed browser GET)")
 				p.redirectToSignin(w, r)
 				return
 			}
 			p.logger.Printf("decision: 401 unauthed (%s)", ae.Message)
-			w.Header().Set("WWW-Authenticate", `Cookie realm="hermes.romaine.life"`)
+			realm := `Cookie realm="hermes.romaine.life"`
+			if !p.resolver.RedirectOnUnauthed() {
+				realm = `Bearer realm="hermes-api", error="invalid_token"`
+			}
+			w.Header().Set("WWW-Authenticate", realm)
 			http.Error(w, "unauthorized: "+ae.Message, http.StatusUnauthorized)
 			return
 		case http.StatusForbidden:

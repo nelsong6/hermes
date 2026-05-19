@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+// requestWithCookie builds a minimal http.Request with the given Cookie
+// header. The SessionResolver interface takes *http.Request so we wrap
+// the cookie value here rather than constructing it inline at every
+// call site.
+func requestWithCookie(cookie string) *http.Request {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	if cookie != "" {
+		r.Header.Set("Cookie", cookie)
+	}
+	return r
+}
+
 func TestHasAppAccess(t *testing.T) {
 	cases := []struct {
 		name string
@@ -46,7 +58,7 @@ func TestCookieDelegate_AdminBypassesAppCheck(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	d := NewCookieDelegate(srv.URL, "hermes")
-	u, err := d.Resolve(context.Background(), "x=1")
+	u, err := d.Resolve(context.Background(), requestWithCookie("x=1"))
 	if err != nil {
 		t.Fatalf("admin should pass without app grant: %v", err)
 	}
@@ -75,7 +87,7 @@ func TestCookieDelegate_UserNeedsAppGrant(t *testing.T) {
 			t.Cleanup(srv.Close)
 
 			d := NewCookieDelegate(srv.URL, "hermes")
-			_, err := d.Resolve(context.Background(), "x=1")
+			_, err := d.Resolve(context.Background(), requestWithCookie("x=1"))
 			if tc.ok && err != nil {
 				t.Fatalf("expected ok, got %v", err)
 			}
@@ -98,7 +110,7 @@ func TestCookieDelegate_PendingRejected(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	d := NewCookieDelegate(srv.URL, "hermes")
-	_, err := d.Resolve(context.Background(), "x=1")
+	_, err := d.Resolve(context.Background(), requestWithCookie("x=1"))
 	ae := asAuthError(err)
 	if ae.Status != http.StatusForbidden {
 		t.Fatalf("pending should 403, got %d (%s)", ae.Status, ae.Message)
@@ -111,7 +123,7 @@ func TestCookieDelegate_NullBodyTreatedAsUnauthed(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	d := NewCookieDelegate(srv.URL, "hermes")
-	_, err := d.Resolve(context.Background(), "x=1")
+	_, err := d.Resolve(context.Background(), requestWithCookie("x=1"))
 	ae := asAuthError(err)
 	if ae.Status != http.StatusUnauthorized {
 		t.Fatalf("null body should 401, got %d (%s)", ae.Status, ae.Message)
@@ -120,7 +132,7 @@ func TestCookieDelegate_NullBodyTreatedAsUnauthed(t *testing.T) {
 
 func TestCookieDelegate_NoCookieIs401(t *testing.T) {
 	d := NewCookieDelegate("http://unused.invalid", "hermes")
-	_, err := d.Resolve(context.Background(), "")
+	_, err := d.Resolve(context.Background(), requestWithCookie(""))
 	ae := asAuthError(err)
 	if ae.Status != http.StatusUnauthorized {
 		t.Fatalf("empty cookie should 401, got %d", ae.Status)
@@ -137,7 +149,7 @@ func TestCookieDelegate_Cached(t *testing.T) {
 
 	d := NewCookieDelegate(srv.URL, "hermes")
 	for i := 0; i < 5; i++ {
-		if _, err := d.Resolve(context.Background(), "same-cookie"); err != nil {
+		if _, err := d.Resolve(context.Background(), requestWithCookie("same-cookie")); err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
 	}
