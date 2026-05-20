@@ -96,8 +96,9 @@ service:
 # platform bot tokens). Each entry maps a Key Vault secret to an env var
 # the StatefulSet envFroms.
 #
-# TODO: confirm the exact env var names Hermes reads. Placeholders below
-# follow common patterns; real upstream names go here once verified.
+# The OpenRouter-specific hermes-llm-api-key is still only a placeholder
+# in romaine-kv. Use the same Anthropic API key Tank session pods already
+# consume until a real OpenRouter key is provisioned.
 # All KV secrets must be created manually before turning on the relevant
 # platform — they are not provisioned by tofu.
 externalSecret:
@@ -106,8 +107,8 @@ externalSecret:
   refreshInterval: 1h
   secretName: hermes-secrets
   keys:
-    - envVar: OPENROUTER_API_KEY      # or OPENAI_API_KEY / NOUS_PORTAL_API_KEY
-      kvKey: hermes-llm-api-key
+    - envVar: ANTHROPIC_API_KEY
+      kvKey: anthropic-api-key
     # The OpenAI-compatible API server (port 8642) is now gated by an
     # auth-proxy sidecar in service-jwt mode (verifies auth.romaine.life
     # role=service JWTs against the IdP's JWKS, pins actor_email domain
@@ -121,13 +122,19 @@ externalSecret:
     # - envVar: SLACK_BOT_TOKEN
     #   kvKey: hermes-slack-bot-token
 
-# Non-secret config. Confirm against Hermes' actual config interface.
+# Non-secret config.
 config:
   name: hermes-config
   # Where Hermes writes its SQLite + skills. Must match persistence.mountPath.
   dataDir: /data
+  # Server-side model Hermes' API server uses for Tank-driven /v1/runs.
+  # The model normalizer translates claude-sonnet-4.6 to Anthropic's native
+  # claude-sonnet-4-6 id at runtime.
+  model:
+    provider: anthropic
+    default: "claude-sonnet-4.6"
   # YAML config file Hermes reads at boot for non-secret settings
-  # (notably the `mcp_servers` map). Mounted into the hermes container
+  # (model settings and the `mcp_servers` map). Mounted into the hermes container
   # at /data/config.yaml via a subPath mount from a sibling ConfigMap;
   # see templates/configmap-config-yaml.yaml. The file is read-only at
   # the mount point — Hermes' Settings UI cannot edit MCP servers in

@@ -14,6 +14,10 @@ spec:
       labels:
         app: hermes
         azure.workload.identity/use: "true"
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/config-yaml: {{ include (print $.Template.BasePath "/configmap-config-yaml.yaml") . | sha256sum }}
+        checksum/externalsecret: {{ include (print $.Template.BasePath "/externalsecret.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount }}
       # Run as UID 1000 (image's `hermes` user) and set fsGroup so the
