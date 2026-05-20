@@ -195,11 +195,10 @@ mcpAuthProxy:
   enabled: true
   image:
     repository: romainecr.azurecr.io/mcp-auth-proxy
-    # Bumped by build.yaml on push-to-main once nelsong6/tank-operator
-    # publishes the standalone image. Placeholder until then — pod will
-    # ImagePullBackOff with a visible signal, no reconcile churn. Same
-    # posture as the original auth-proxy tag placeholder.
-    tag: "mcp-auth-proxy-placeholder"
+    # Published by nelsong6/tank-operator's mcp-auth-proxy-build
+    # workflow. Keep this pinned to the fingerprint tag that exists in
+    # ACR so Hermes does not roll to an unpublished sidecar image.
+    tag: "mcp-auth-proxy-a18685c7a6a0d24e70c9a8993605bac50c940cba8c65f44908411b43b252f686"
     pullPolicy: IfNotPresent
   metricsPort: 9990
   resources:
