@@ -30,7 +30,7 @@ Hermes is a **neighbor** to tank-operator, not embedded in it. Tank session pods
 
 ## Things that don't work yet
 
-- No LLM API key set in Key Vault. The ExternalSecret expects `hermes-llm-api-key` (env-mapped to `OPENROUTER_API_KEY` by default; edit `values.yaml::externalSecret.keys` if Hermes is pointed at another provider). Without it, the gateway will start but fail real requests.
+- Hermes uses the shared `anthropic-api-key` Key Vault secret by default, mapped to `ANTHROPIC_API_KEY`, with `model.provider=anthropic` in the chart-rendered config. The older `hermes-llm-api-key` OpenRouter placeholder is not used until it is replaced with a real key and the chart is pointed back at OpenRouter.
 - No platform bot tokens loaded. Each platform (Telegram, Slack, …) needs its KV secret + an entry in `externalSecret.keys` before that platform comes online.
 - The `[browser]` extra installs without the chromium runtime; if/when in-pod browser automation is exercised, install chromium in the Dockerfile runtime stage.
 - One Hermes-specific marketed feature (`/browser connect`, attach to the user's local browser via CDP) only works from a CLI on the user's machine; it does NOT work through any gateway (web UI, Telegram, etc.). Server-side headless browser automation works fine.
