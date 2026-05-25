@@ -102,8 +102,10 @@ service:
 # All KV secrets must be created manually before turning on the relevant
 # platform — they are not provisioned by tofu.
 externalSecret:
-  storeName: romaine-kv
+  createStore: true
+  storeName: ng6-hermes
   storeKind: ClusterSecretStore
+  vaultUrl: https://ng6-hermes.vault.azure.net
   refreshInterval: 1h
   secretName: hermes-secrets
   keys:
