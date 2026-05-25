@@ -96,9 +96,9 @@ service:
 # platform bot tokens). Each entry maps a Key Vault secret to an env var
 # the StatefulSet envFroms.
 #
-# The OpenRouter-specific hermes-llm-api-key is still only a placeholder
-# in romaine-kv. Use the same Anthropic API key Tank session pods already
-# consume until a real OpenRouter key is provisioned.
+# The OpenRouter-specific hermes-llm-api-key remains a placeholder. Use
+# the Anthropic API key already copied into ng6-hermes until a real
+# OpenRouter key is provisioned.
 # All KV secrets must be created manually before turning on the relevant
 # platform — they are not provisioned by tofu.
 externalSecret:
