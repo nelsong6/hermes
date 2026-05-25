@@ -32,7 +32,7 @@ Hermes is intended to sit as a **neighbor** to tank-operator, not embed inside i
 **Scaffolded, not yet deployed.** Open TODOs before the StatefulSet will boot:
 
 - Build a real container image and push to `romainecr.azurecr.io/hermes` (Dockerfile is a stub).
-- The chart currently uses the shared `anthropic-api-key` Key Vault secret, mounted as `ANTHROPIC_API_KEY`, and renders `model.provider=anthropic` into Hermes' `/data/config.yaml`. To move back to OpenRouter, replace the `hermes-llm-api-key` placeholder with a real key and update `externalSecret.keys` plus `config.model`.
+- The chart currently uses `anthropic-api-key` from the app-owned `ng6-hermes` Key Vault, mounted as `ANTHROPIC_API_KEY`, and renders `model.provider=anthropic` into Hermes' `/data/config.yaml`. To move back to OpenRouter, replace the `hermes-llm-api-key` placeholder with a real key and update `externalSecret.keys` plus `config.model`.
 - Confirm any additional upstream env vars before enabling platform gateways; the current chart is validated for the API-server model path.
 
 ## Related repos
