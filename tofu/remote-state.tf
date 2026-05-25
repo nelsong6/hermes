@@ -7,8 +7,6 @@ locals {
   }
 }
 
-data "azuread_client_config" "current" {}
-
 data "azurerm_client_config" "current" {}
 
 data "terraform_remote_state" "infra_bootstrap" {
@@ -27,7 +25,7 @@ locals {
   aks_oidc_issuer_url = data.terraform_remote_state.infra_bootstrap.outputs.aks_oidc_issuer_url
 }
 
-data "azurerm_key_vault" "main" {
-  name                = var.key_vault_name
+data "azurerm_user_assigned_identity" "external_secrets" {
+  name                = "infra-shared-identity"
   resource_group_name = local.infra.resource_group_name
 }
