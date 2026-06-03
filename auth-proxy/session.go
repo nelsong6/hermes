@@ -1,7 +1,7 @@
 // Package main implements the hermes auth-proxy sidecar.
 //
 // session.go: cookie-delegate to auth.romaine.life. Lifted from
-// nelsong6/glimmung's internal/auth/cookie_delegate.go (the existing
+// romaine-life/glimmung's internal/auth/cookie_delegate.go (the existing
 // in-prod pattern) and adapted for per-app gating via the `apps` JSON
 // column on the auth.romaine.life user record.
 //

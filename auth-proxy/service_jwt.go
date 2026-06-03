@@ -6,9 +6,9 @@
 // dashboard. This file handles SERVICES hitting Hermes' OpenAI-
 // compatible API server. Same upstream image, different sidecar
 // container, different env (`AUTH_MODE=service-jwt`). See
-// nelsong6/tank-operator#540 for the cross-repo design.
+// romaine-life/tank-operator#540 for the cross-repo design.
 //
-// Verification semantics (mirrors nelsong6/tank-operator's
+// Verification semantics (mirrors romaine-life/tank-operator's
 // internal/auth/jwks_remote.go so the two services stay in sync):
 //
 //   - RS256 signature against auth.romaine.life's JWKS
@@ -22,7 +22,7 @@
 // Today's only legitimate caller is the tank-operator orchestrator,
 // whose service-exchange JWT carries
 // actor_email=pod-orchestrator@service.tank-operator.romaine.life
-// (nelsong6/auth#42's pod-stable consumer). The
+// (romaine-life/auth#42's pod-stable consumer). The
 // ALLOWED_ACTOR_EMAIL_DOMAINS env is set to `service.tank-operator.romaine.life`
 // so a session pod's JWT, an mcp-* shared-service JWT, or a future
 // /admin/service-tokens-minted admin token cannot drive Hermes' API
@@ -46,7 +46,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Defaults match the orchestrator's nelsong6/tank-operator pattern so
+// Defaults match the orchestrator's romaine-life/tank-operator pattern so
 // the verification semantics are uniform across the two repos.
 const (
 	defaultJWKSURL     = "https://auth.romaine.life/api/auth/jwks"
@@ -182,7 +182,7 @@ func (d *ServiceJWTDelegate) actorDomainAllowed(domain string) bool {
 
 // ─── JWKS cache ────────────────────────────────────────────────────────
 //
-// Direct port of nelsong6/tank-operator/backend-go/internal/auth/jwks_remote.go's
+// Direct port of romaine-life/tank-operator/backend-go/internal/auth/jwks_remote.go's
 // jwksCache. Same TTL, same kid-keyed map, same lazy-refresh semantics.
 // The two services share verification posture — drift here is a bug.
 

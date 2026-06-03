@@ -20,7 +20,7 @@ import (
 // Test fixture: signs JWTs with a fresh RSA key and serves the matching
 // JWKS so the delegate's verification path runs end-to-end. The actor
 // helper builds a canonical pod-stable service-exchange JWT shape
-// matching nelsong6/auth's mintAuthJwt output.
+// matching romaine-life/auth's mintAuthJwt output.
 
 type signer struct {
 	key *rsa.PrivateKey
@@ -191,7 +191,7 @@ func TestServiceJWT_RejectsNonServiceRole(t *testing.T) {
 }
 
 func TestServiceJWT_RejectsActorEmailDomainOutsideAllowlist(t *testing.T) {
-	// This is the load-bearing test: nelsong6/auth issues role=service
+	// This is the load-bearing test: romaine-life/auth issues role=service
 	// JWTs to multiple consumers (sessions, mcp-* shared servers,
 	// hermes itself, the orchestrator). Hermes' API must only accept
 	// the orchestrator's JWT; the rest must 403 even though they're
