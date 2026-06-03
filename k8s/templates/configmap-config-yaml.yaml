@@ -12,10 +12,10 @@
 #
 # Adding mcp_servers entries here requires:
 #   1. A matching entry in mcp-auth-proxy's LISTENERS map (in
-#      nelsong6/tank-operator/claude-container/mcp-auth-proxy/src/...)
+#      romaine-life/tank-operator/claude-container/mcp-auth-proxy/src/...)
 #   2. A per-MCP RoleBinding admitting hermes/hermes (one PR per
 #      MCP repo — see the rollout chain in
-#      nelsong6/tank-operator#540).
+#      romaine-life/tank-operator#540).
 #
 # Hermes' Settings UI cannot edit this file: the subPath mount is
 # read-only at the container. Chart / Helm is the source of truth.

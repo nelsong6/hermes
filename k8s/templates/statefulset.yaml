@@ -70,7 +70,7 @@ spec:
             # domain, then forwards here. With this loopback bind,
             # Hermes' own docs no longer require API_SERVER_KEY — the
             # JWT-verifying sidecar is the only auth layer (and the
-            # only path to the API server). See nelsong6/tank-operator#540.
+            # only path to the API server). See romaine-life/tank-operator#540.
             - name: API_SERVER_ENABLED
               value: "true"
             - name: API_SERVER_HOST
@@ -155,8 +155,8 @@ spec:
         # allowedActorEmailDomains), and forwards authenticated calls
         # to 127.0.0.1:apiServer.port (the Hermes API server). The
         # cluster-internal Service `hermes-api` targets this port. See
-        # nelsong6/tank-operator#540 for the cross-repo design and
-        # nelsong6/auth#42 for the orchestrator service-exchange entry.
+        # romaine-life/tank-operator#540 for the cross-repo design and
+        # romaine-life/auth#42 for the orchestrator service-exchange entry.
         #
         # Today's only legitimate caller is the tank-operator orchestrator,
         # whose service-exchange JWT carries actor_email under
@@ -203,7 +203,7 @@ spec:
         # Localhost reverse proxy that injects fresh bearer auth on
         # outbound MCP calls. Same image (and same per-port behavior)
         # Tank session pods carry today — carved out into a standalone
-        # publishable image in nelsong6/tank-operator#541 so non-Tank
+        # publishable image in romaine-life/tank-operator#541 so non-Tank
         # pods can sidecar it without pulling a full session container.
         #
         # Listens on 127.0.0.1:9991..9996 inside the pod (the MCP
@@ -222,14 +222,14 @@ spec:
         #   (auto-mounted by kubelet) to outbound Authorization.
         #   Each MCP server's chart admits Hermes' SA via its
         #   per-MCP RoleBinding — separate one-line PRs per MCP repo
-        #   (see nelsong6/tank-operator#540's rollout chain).
+        #   (see romaine-life/tank-operator#540's rollout chain).
         # - auth.romaine.life-JWT-gated (github application-layer;
         #   X-Auth-Romaine-Token side header for tank-operator /
         #   glimmung): proxy exchanges the audience-pinned projected
         #   SA token (mounted at /var/run/secrets/auth.romaine.life)
         #   for a role=service JWT via auth.romaine.life's
         #   /api/auth/exchange/k8s. Hermes is onboarded as a
-        #   pod-stable consumer in nelsong6/auth#41.
+        #   pod-stable consumer in romaine-life/auth#41.
         {{- if .Values.mcpAuthProxy.enabled }}
         - name: mcp-auth-proxy
           image: {{ .Values.mcpAuthProxy.image.repository }}:{{ .Values.mcpAuthProxy.image.tag }}
@@ -245,7 +245,7 @@ spec:
             # session attribution forward through the MCP layer is
             # the same out-of-scope future enhancement called out on
             # the other pod-stable consumers (see
-            # nelsong6/auth/src/service-exchange.ts's pod-stable
+            # romaine-life/auth/src/service-exchange.ts's pod-stable
             # comment).
           ports:
             - name: metrics

@@ -10,7 +10,7 @@
 # auth-proxy verifies inbound Authorization: Bearer <jwt> against
 # auth.romaine.life's JWKS (role=service AND actor_email domain pinned
 # to service.tank-operator.romaine.life) and forwards to the loopback
-# API server. See nelsong6/tank-operator#540 and nelsong6/auth#42.
+# API server. See romaine-life/tank-operator#540 and romaine-life/auth#42.
 #
 # Today's only legitimate consumer is tank-operator's orchestrator,
 # which mints an auth.romaine.life service JWT and posts to /v1/runs

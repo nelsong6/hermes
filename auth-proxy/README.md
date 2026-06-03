@@ -1,6 +1,6 @@
 # auth-proxy
 
-Tiny Go reverse proxy that fronts the `hermes dashboard` with cookie-based auth against `auth.romaine.life`. Lifted from `nelsong6/glimmung`'s `internal/auth/cookie_delegate.go` — same shape, repackaged as a standalone HTTP service so it can sit in front of an upstream app we don't control (the FastAPI dashboard from `NousResearch/hermes-agent`).
+Tiny Go reverse proxy that fronts the `hermes dashboard` with cookie-based auth against `auth.romaine.life`. Lifted from `romaine-life/glimmung`'s `internal/auth/cookie_delegate.go` — same shape, repackaged as a standalone HTTP service so it can sit in front of an upstream app we don't control (the FastAPI dashboard from `NousResearch/hermes-agent`).
 
 ## Behavior
 

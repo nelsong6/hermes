@@ -117,7 +117,7 @@ externalSecret:
     # to service.tank-operator.romaine.life so only Tank's orchestrator
     # can drive the API). Hermes' API server binds 127.0.0.1 only, so
     # API_SERVER_KEY is no longer required and is intentionally not in
-    # this list. See nelsong6/tank-operator#540.
+    # this list. See romaine-life/tank-operator#540.
     # Per-platform bot tokens — enable as platforms are turned on.
     # - envVar: TELEGRAM_BOT_TOKEN
     #   kvKey: hermes-telegram-bot-token
@@ -145,7 +145,7 @@ config:
 
 # OpenAI-compatible API server (POST /v1/chat/completions, /v1/responses,
 # /v1/runs, …). Tank's orchestrator drives Hermes through /v1/runs in
-# nelsong6/tank-operator#540's `hermes_gui` session mode.
+# romaine-life/tank-operator#540's `hermes_gui` session mode.
 #
 # Bound to 127.0.0.1 only — never reachable directly from the network.
 # A second auth-proxy sidecar (see apiAuthProxy below) fronts it on
@@ -174,7 +174,7 @@ apiServer:
 # Authorization: Bearer <jwt> against auth.romaine.life's JWKS,
 # requires role=service, and pins actor_email's domain to the
 # tank-operator orchestrator's reserved synthetic-email domain (added
-# in nelsong6/auth#42). Any other role=service JWT (sessions, mcp-*,
+# in romaine-life/auth#42). Any other role=service JWT (sessions, mcp-*,
 # admin-minted service tokens) is rejected with 403.
 apiAuthProxy:
   enabled: true
@@ -193,7 +193,7 @@ apiAuthProxy:
       memory: 128Mi
 
 # mcp-auth-proxy sidecar. Same image Tank session pods bake inline;
-# carved out as a standalone image in nelsong6/tank-operator#541.
+# carved out as a standalone image in romaine-life/tank-operator#541.
 # Listens on 127.0.0.1:9991..9996 inside the pod and injects fresh
 # bearer auth (default SA token for the K8s-SAR-gated MCPs; auth.romaine.life
 # service JWT for the romaine-JWT-gated ones) on every outbound call.
@@ -204,7 +204,7 @@ mcpAuthProxy:
   enabled: true
   image:
     repository: romainecr.azurecr.io/mcp-auth-proxy
-    # Published by nelsong6/tank-operator's mcp-auth-proxy-build
+    # Published by romaine-life/tank-operator's mcp-auth-proxy-build
     # workflow. Keep this pinned to the fingerprint tag that exists in
     # ACR so Hermes does not roll to an unpublished sidecar image.
     tag: "mcp-auth-proxy-a18685c7a6a0d24e70c9a8993605bac50c940cba8c65f44908411b43b252f686"

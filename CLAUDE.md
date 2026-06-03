@@ -8,7 +8,7 @@ This repo owns the deployment, not the agent. Upstream is [`NousResearch/hermes-
 
 ## Layout
 
-- `k8s/` — Helm chart deployed by ArgoCD. `Application` lives in `nelsong6/infra-bootstrap` at `k8s/apps/hermes.yaml`.
+- `k8s/` — Helm chart deployed by ArgoCD. `Application` lives in `romaine-life/infra-bootstrap` at `k8s/apps/hermes.yaml`.
 - `tofu/` — per-app Azure infra (workload identity, role grants). Reads `infra-bootstrap` remote state for shared values.
 - `Dockerfile` — multi-stage build for `romainecr.azurecr.io/hermes`. Pinned to upstream `v2026.5.16` (date-tagged release scheme) via `pip install "hermes-agent[all] @ git+..."`. Entrypoint is `hermes gateway`.
 - `auth-proxy/` — Go reverse proxy built into a separate image `romainecr.azurecr.io/auth-proxy`. Tiny (~250 LOC + tests). See `auth-proxy/README.md` for env-var config.

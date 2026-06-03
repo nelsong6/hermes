@@ -25,7 +25,7 @@ Hermes is a long-lived, self-improving AI agent: persistent SQLite memory (FTS5 
 
 ## Integration intent
 
-Hermes is intended to sit as a **neighbor** to tank-operator, not embed inside it. Tank session pods become additional clients of the same Hermes instance (alongside Telegram/Slack/etc.) — they don't run their own Hermes. See conversation history in #1 / `nelsong6/infra-bootstrap#122` for the design discussion.
+Hermes is intended to sit as a **neighbor** to tank-operator, not embed inside it. Tank session pods become additional clients of the same Hermes instance (alongside Telegram/Slack/etc.) — they don't run their own Hermes. See conversation history in #1 / `romaine-life/infra-bootstrap#122` for the design discussion.
 
 ## Status
 
@@ -37,6 +37,6 @@ Hermes is intended to sit as a **neighbor** to tank-operator, not embed inside i
 
 ## Related repos
 
-- `nelsong6/infra-bootstrap` — root infra; owns the AAD app, OIDC fed creds, ArgoCD Application
-- `nelsong6/tank-operator` — sister AI agent platform (ephemeral session pods, contrast: Hermes is long-lived)
+- `romaine-life/infra-bootstrap` — root infra; owns the AAD app, OIDC fed creds, ArgoCD Application
+- `romaine-life/tank-operator` — sister AI agent platform (ephemeral session pods, contrast: Hermes is long-lived)
 - Upstream: [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent)
